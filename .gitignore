@@ -1,0 +1,106 @@
+# PrintBar — .gitignore
+# Secrets, build artifacts, and environment-specific files.
+# If you see a secret in git history, rotate it immediately.
+
+# ─── Environment & Secrets (CRITICAL — never commit) ─────────────────────────
+.env
+.env.local
+.env.development
+.env.staging
+.env.production
+.env.*.local
+*.key
+*.pem
+*.cert
+*.secret
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+*.cover
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.cache/
+
+# ─── Virtual Environments ─────────────────────────────────────────────────────
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# ─── Node.js ──────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp/
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# ─── Build Artifacts ──────────────────────────────────────────────────────────
+dist/
+build/
+out/
+.next/
+.vite/
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+# Volume mount directories
+data/
+postgres-data/
+redis-data/
+
+# ─── Uploads (never store user files in the repo) ─────────────────────────────
+uploads/
+downloads/
+tmp/
+
+# ─── Editors ──────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Test DB ──────────────────────────────────────────────────────────────────
+*.db
+*.sqlite
+test_printbar.db
