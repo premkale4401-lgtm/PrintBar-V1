@@ -42,11 +42,12 @@ services:
       DEBUG: "true"
       DATABASE_ECHO: "false"
       ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173,http://localhost:80"
+      PYTHONPATH: /app
     volumes:
       # Mount source code for hot-reload during development.
       - ./apps/backend:/app
     command: >
-      uvicorn app.main:app
+      python -m uvicorn app.main:app
         --host 0.0.0.0
         --port 8000
         --reload
