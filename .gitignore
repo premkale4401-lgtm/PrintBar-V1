@@ -79,9 +79,10 @@ out/
 
 # ─── Docker ───────────────────────────────────────────────────────────────────
 # Volume mount directories
-data/
-postgres-data/
-redis-data/
+/data/
+/postgres-data/
+/redis-data/
+!src/data/
 
 # ─── Uploads (never store user files in the repo) ─────────────────────────────
 uploads/
