@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PrintStep, PrintConfig, UploadedFile } from './types';
-import { PRINTER_HUBS } from './data/mockData';
+import { useKiosks } from './hooks/useKiosks';
+import { DEFAULT_KIOSK_HUBS } from './services/kiosk.service';
 import { Navbar } from './components/Navbar';
 import { LandingView } from './components/LandingView';
 import { StepUpload } from './components/KioskFlow/StepUpload';
@@ -84,6 +85,8 @@ function AppContent() {
     navigate('/');
   };
 
+  const { hubs } = useKiosks();
+
   // Print Job Configuration State
   const [printConfig, setPrintConfig] = useState<PrintConfig>({
     file: null,
@@ -93,10 +96,10 @@ function AppContent() {
     colorMode: 'bw',
     duplex: false,
     orientation: 'portrait',
-    selectedHubId: PRINTER_HUBS[0].id,
+    selectedHubId: hubs[0]?.id || DEFAULT_KIOSK_HUBS[0].id,
   });
 
-  const onlineHubs = PRINTER_HUBS.filter(h => h.status === 'online');
+  const onlineHubs = hubs.filter(h => h.status === 'online');
 
   // Handlers for switching to Kiosk Flow directly
   const handleStartKioskFlow = (hubId?: string) => {
@@ -142,7 +145,7 @@ function AppContent() {
       {/* Top Header Navigation */}
       <Navbar
         onlineHubsCount={onlineHubs.length}
-        totalHubsCount={PRINTER_HUBS.length}
+        totalHubsCount={hubs.length}
         onStartKioskFlow={() => handleStartKioskFlow()}
         isAdminLoggedIn={isAdminLoggedIn}
         onAdminLogin={handleAdminLogin}

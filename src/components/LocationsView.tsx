@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PRINTER_HUBS } from '../data/mockData';
+import { useKiosks } from '../hooks/useKiosks';
 import { PrinterHub } from '../types';
 import { 
   MapPin, 
@@ -21,11 +21,12 @@ interface LocationsViewProps {
 export const LocationsView: React.FC<LocationsViewProps> = ({
   onSelectHubAndPrint,
 }) => {
+  const { hubs } = useKiosks();
   const [filter24h, setFilter24h] = useState(false);
   const [filterColor, setFilterColor] = useState(false);
   const [filterA3, setFilterA3] = useState(false);
 
-  const filteredHubs = PRINTER_HUBS.filter((hub) => {
+  const filteredHubs = hubs.filter((hub) => {
     if (filter24h && !hub.is24Hours) return false;
     if (filterColor && !hub.colorAvailable) return false;
     if (filterA3 && !hub.a3Available) return false;
@@ -93,7 +94,7 @@ export const LocationsView: React.FC<LocationsViewProps> = ({
         </div>
 
         <span className="text-xs text-slate-400 font-mono">
-          Showing <strong>{filteredHubs.length}</strong> of {PRINTER_HUBS.length} stations
+          Showing <strong>{filteredHubs.length}</strong> of {hubs.length} stations
         </span>
 
       </div>
