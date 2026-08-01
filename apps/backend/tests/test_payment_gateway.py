@@ -1,142 +1,94 @@
 """
-PrintBar Backend — Payment Gateway Tests
+PrintBar Backend — Razorpay Payment Gateway Tests
 
-Tests for Easebuzz HMAC-SHA512 signature generation and verification.
-These are pure cryptographic tests — no DB or network required.
+Tests for Razorpay HMAC-SHA256 signature generation, constant-time verification,
+and paise/INR amount validation.
+These are pure unit tests — no DB or network required.
 """
 from __future__ import annotations
 
 import hashlib
+import hmac
 from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
 
-from app.payments.easebuzz import EasebuzzGateway
+from app.payments.razorpay import RazorpayGateway
 
 
-def _make_gateway(key: str = "TESTKEY123", salt: str = "TESTSALT456") -> EasebuzzGateway:
-    """Creates an EasebuzzGateway with test credentials."""
-    with patch("app.payments.easebuzz.settings") as mock_settings:
-        mock_settings.EASEBUZZ_KEY = key
-        mock_settings.EASEBUZZ_SALT = salt
-        mock_settings.EASEBUZZ_BASE_URL = "https://testpay.easebuzz.in"
-        mock_settings.EASEBUZZ_ENV = "test"
-        gw = EasebuzzGateway.__new__(EasebuzzGateway)
-        gw._key = key
-        gw._salt = salt
-        gw._base_url = "https://testpay.easebuzz.in"
-        gw._env = "test"
+def _make_gateway(key_id: str = "rzp_test_KEY123", key_secret: str = "SECRET456") -> RazorpayGateway:
+    """Creates a RazorpayGateway with test credentials."""
+    gw = RazorpayGateway.__new__(RazorpayGateway)
+    gw._key_id = key_id
+    gw._key_secret = key_secret
+    gw._base_url = "https://api.razorpay.com/v1"
+    gw._currency = "INR"
     return gw
 
 
-class TestEasebuzzSignature:
-    """Tests for HMAC-SHA512 hash generation and verification."""
+class TestRazorpaySignature:
+    """Tests for Razorpay HMAC-SHA256 signature generation and verification."""
 
-    def test_initiation_hash_deterministic(self) -> None:
-        """Same inputs always produce same hash."""
+    def test_signature_deterministic(self) -> None:
+        """Same inputs always produce the same HMAC-SHA256 hash."""
         gw = _make_gateway()
-        h1 = gw.compute_initiation_hash("TXN001", "10.00", "Print", "Guest", "guest@test.com")
-        h2 = gw.compute_initiation_hash("TXN001", "10.00", "Print", "Guest", "guest@test.com")
-        assert h1 == h2
-        assert len(h1) == 128  # SHA-512 hex = 128 chars
+        s1 = gw.compute_signature("order_123", "pay_456")
+        s2 = gw.compute_signature("order_123", "pay_456")
+        assert s1 == s2
+        assert len(s1) == 64  # SHA-256 hex = 64 chars
 
-    def test_initiation_hash_changes_with_amount(self) -> None:
+    def test_signature_changes_with_order_id(self) -> None:
         gw = _make_gateway()
-        h1 = gw.compute_initiation_hash("TXN001", "10.00", "Print", "Guest", "g@t.com")
-        h2 = gw.compute_initiation_hash("TXN001", "20.00", "Print", "Guest", "g@t.com")
-        assert h1 != h2
+        s1 = gw.compute_signature("order_123", "pay_456")
+        s2 = gw.compute_signature("order_999", "pay_456")
+        assert s1 != s2
 
-    def test_initiation_hash_changes_with_salt(self) -> None:
-        gw1 = _make_gateway(salt="SALT_A")
-        gw2 = _make_gateway(salt="SALT_B")
-        h1 = gw1.compute_initiation_hash("TXN001", "10.00", "Print", "Guest", "g@t.com")
-        h2 = gw2.compute_initiation_hash("TXN001", "10.00", "Print", "Guest", "g@t.com")
-        assert h1 != h2
+    def test_signature_changes_with_secret(self) -> None:
+        gw1 = _make_gateway(key_secret="SECRET_A")
+        gw2 = _make_gateway(key_secret="SECRET_B")
+        s1 = gw1.compute_signature("order_123", "pay_456")
+        s2 = gw2.compute_signature("order_123", "pay_456")
+        assert s1 != s2
 
-    def test_webhook_verification_correct_signature(self) -> None:
-        """Correctly signed webhook should pass verification."""
-        gw = _make_gateway(key="K123", salt="S456")
+    def test_verify_signature_pass(self) -> None:
+        """Correctly computed signature passes verification."""
+        gw = _make_gateway(key_secret="MY_SECRET_KEY")
+        order_id = "order_abc123"
+        payment_id = "pay_xyz789"
 
-        # Build a webhook payload and compute the correct hash.
-        payload = {
-            "status": "success",
-            "txnid": "JOB_UUID",
-            "amount": "59.00",
-            "productinfo": "Print",
-            "firstname": "Guest",
-            "email": "guest@test.com",
-            "udf1": "PAY_UUID",
-            "udf2": "", "udf3": "", "udf4": "", "udf5": "",
-        }
+        # Compute correct signature manually
+        msg = f"{order_id}|{payment_id}"
+        expected_sig = hmac.new(b"MY_SECRET_KEY", msg.encode(), hashlib.sha256).hexdigest()
 
-        # Compute the correct reverse hash manually.
-        reverse_str = (
-            f"S456|{payload['status']}||"
-            f"||||{payload['udf1']}|"
-            f"{payload['email']}|{payload['firstname']}|{payload['productinfo']}|"
-            f"{payload['amount']}|{payload['txnid']}|K123"
-        )
-        correct_hash = hashlib.sha512(reverse_str.encode()).hexdigest()
-        payload["hash"] = correct_hash
+        assert gw.verify_signature(order_id, payment_id, expected_sig) is True
 
-        assert gw.verify_webhook_signature(payload) is True
-
-    def test_webhook_verification_wrong_signature(self) -> None:
-        """Tampered hash should fail verification."""
+    def test_verify_signature_fail_on_tampered(self) -> None:
+        """Tampered signature fails verification."""
         gw = _make_gateway()
-        payload = {
-            "status": "success", "txnid": "JOB_UUID",
-            "amount": "59.00", "productinfo": "Print",
-            "firstname": "Guest", "email": "guest@test.com",
-            "udf1": "", "udf2": "", "udf3": "", "udf4": "", "udf5": "",
-            "hash": "deadbeef" * 16,  # Wrong hash
-        }
-        assert gw.verify_webhook_signature(payload) is False
+        tampered_sig = "a" * 64
+        assert gw.verify_signature("order_123", "pay_456", tampered_sig) is False
 
-    def test_amount_verification_passes_on_match(self) -> None:
+
+class TestRazorpayAmountValidation:
+    """Tests for paise / INR conversion and amount verification."""
+
+    def test_inr_to_paise(self) -> None:
+        assert RazorpayGateway.inr_to_paise(Decimal("7.08")) == 708
+        assert RazorpayGateway.inr_to_paise(Decimal("100.00")) == 10000
+        assert RazorpayGateway.inr_to_paise(Decimal("1.50")) == 150
+
+    def test_paise_to_inr(self) -> None:
+        assert RazorpayGateway.paise_to_inr(708) == Decimal("7.08")
+        assert RazorpayGateway.paise_to_inr(10000) == Decimal("100.00")
+
+    def test_verify_amount_pass_on_match(self) -> None:
         gw = _make_gateway()
-        # Should not raise
-        gw.verify_payment_amount("59.00", Decimal("59.00"))
+        # Should not raise exception
+        gw.verify_amount(708, Decimal("7.08"))
 
-    def test_amount_verification_fails_on_mismatch(self) -> None:
+    def test_verify_amount_fail_on_mismatch(self) -> None:
         from app.exceptions.base import PaymentAmountMismatchError
         gw = _make_gateway()
         with pytest.raises(PaymentAmountMismatchError):
-            gw.verify_payment_amount("59.00", Decimal("60.00"))
-
-    def test_amount_verification_fails_on_invalid_amount(self) -> None:
-        from app.exceptions.base import PaymentAmountMismatchError
-        gw = _make_gateway()
-        with pytest.raises(PaymentAmountMismatchError):
-            gw.verify_payment_amount("not_a_number", Decimal("59.00"))
-
-
-class TestEasebuzzPayloadBuild:
-    """Tests for payment payload construction."""
-
-    def test_build_payload_contains_required_fields(self) -> None:
-        gw = _make_gateway()
-        payload = gw.build_payment_payload(
-            txnid="TXN001",
-            amount=Decimal("59.00"),
-            productinfo="Print",
-            firstname="Guest",
-            email="guest@test.com",
-            phone="9999999999",
-            surl="https://api.printbar.in/payments/webhook",
-            furl="https://api.printbar.in/payments/webhook",
-        )
-        required = ["key", "txnid", "amount", "productinfo", "firstname",
-                    "email", "phone", "surl", "furl", "hash"]
-        for field in required:
-            assert field in payload, f"Missing field: {field}"
-
-    def test_build_payload_amount_formatted_to_2dp(self) -> None:
-        gw = _make_gateway()
-        payload = gw.build_payment_payload(
-            txnid="TXN001", amount=Decimal("59"), productinfo="Print",
-            firstname="Guest", email="g@t.com", phone="9999999999",
-            surl="https://x.com", furl="https://x.com",
-        )
-        assert payload["amount"] == "59.00"
+            gw.verify_amount(708, Decimal("10.00"))

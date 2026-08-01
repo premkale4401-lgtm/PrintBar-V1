@@ -1,7 +1,8 @@
 /**
  * PrintBar — Payment Service
  *
- * POST /api/v1/checkout              → initiate payment (creates job + Easebuzz payment)
+ * POST /api/v1/payments/create-order → create Razorpay order (returns orderId + public keyId)
+ * POST /api/v1/payments/verify       → verify Razorpay HMAC-SHA256 signature
  * GET  /api/v1/payments/{id}/status  → poll payment + job status
  * GET  /api/v1/jobs/{id}             → get full job details
  */
@@ -27,6 +28,30 @@ export interface CheckoutResult {
   paymentUrl: string;
   amount: string;
   currency: string;
+  status: string;
+}
+
+export interface RazorpayOrderResult {
+  jobId: string;
+  paymentId: string;
+  razorpayOrderId: string;
+  amountPaise: number;
+  currency: string;
+  keyId: string;
+  totalInr: string;
+  breakdown?: Record<string, any>;
+  idempotent?: boolean;
+}
+
+export interface RazorpayVerifyParams {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+  job_id: string;
+}
+
+export interface RazorpayVerifyResult {
+  jobId: string;
   status: string;
 }
 
@@ -58,13 +83,10 @@ export interface JobDetails {
 
 export const paymentService = {
   /**
-   * Initiates checkout by creating a print job and an Easebuzz payment session.
-   * Returns the paymentUrl that the frontend should redirect the user to.
-   *
-   * The backend recalculates price — never trust frontend amounts.
+   * Creates a Razorpay order and print job.
+   * Returns orderId, amount in paise, currency, and the public KEY_ID.
    */
-  async initiateCheckout(params: CheckoutParams): Promise<CheckoutResult> {
-    // Build query string params (backend uses Query params, not JSON body for checkout).
+  async createRazorpayOrder(params: CheckoutParams): Promise<RazorpayOrderResult> {
     const searchParams = new URLSearchParams({
       file_id: params.fileId,
       color_mode: params.colorMode,
@@ -83,16 +105,32 @@ export const paymentService = {
       searchParams.append('idempotency_key', params.idempotencyKey);
     }
 
-    return apiFetch<CheckoutResult>({
+    return apiFetch<RazorpayOrderResult>({
       method: 'POST',
-      url: `/checkout?${searchParams.toString()}`,
+      url: `/payments/create-order?${searchParams.toString()}`,
     });
   },
 
   /**
+   * Verifies Razorpay payment signature server-side.
+   */
+  async verifyRazorpayPayment(data: RazorpayVerifyParams): Promise<RazorpayVerifyResult> {
+    return apiFetch<RazorpayVerifyResult>({
+      method: 'POST',
+      url: '/payments/verify',
+      data,
+    });
+  },
+
+  /**
+   * Backward-compatible helper method mapping to createRazorpayOrder.
+   */
+  async initiateCheckout(params: CheckoutParams): Promise<any> {
+    return this.createRazorpayOrder(params);
+  },
+
+  /**
    * Polls payment and job status.
-   * Call every 3 seconds after redirect back from Easebuzz,
-   * or as a fallback when WebSocket is unavailable.
    */
   async getPaymentStatus(jobId: string): Promise<PaymentStatus> {
     return apiFetch<PaymentStatus>({
@@ -103,7 +141,6 @@ export const paymentService = {
 
   /**
    * Gets full print job details.
-   * Used on the success screen to display accurate job summary.
    */
   async getJob(jobId: string): Promise<JobDetails> {
     return apiFetch<JobDetails>({

@@ -90,7 +90,7 @@ export const StepPayment: React.FC<StepPaymentProps> = ({
     return null;
   };
 
-  /** Initiates the real Easebuzz checkout flow. */
+  /** Initiates the Razorpay checkout flow. */
   const handlePay = async () => {
     const fileId = getFileId();
     if (!fileId) {
@@ -98,17 +98,25 @@ export const StepPayment: React.FC<StepPaymentProps> = ({
       return;
     }
 
-    setRedirectingApp('Easebuzz');
+    setRedirectingApp('Razorpay');
     setIsRedirecting(true);
 
-    const result = await initiateCheckout(config, selectedPagesCount, fileId);
+    const result = await initiateCheckout(
+      config,
+      selectedPagesCount,
+      fileId,
+      (jobId) => {
+        onJobCreated?.(jobId);
+        onPayAndStartPrint();
+      }
+    );
+
+    setIsRedirecting(false);
+    setRedirectingApp(null);
+
     if (result) {
       onJobCreated?.(result.jobId);
-      // window.location.href is set inside initiateCheckout — page will redirect.
-    } else {
-      setIsRedirecting(false);
-      setRedirectingApp(null);
-      showToast('Payment initiation failed. Please try again.', 'error');
+      onPayAndStartPrint();
     }
   };
 
@@ -438,7 +446,7 @@ export const StepPayment: React.FC<StepPaymentProps> = ({
               Opening {redirectingApp}...
             </h3>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Redirecting to Easebuzz payment gateway for {displayPrice}. Once authorized, printing will start automatically.
+              Opening Razorpay secure checkout for {displayPrice}. Once authorized, printing will start automatically.
             </p>
             <div className="pt-2">
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full">

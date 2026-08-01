@@ -82,12 +82,27 @@ class Settings(BaseSettings):
     # ─── Guest Session ─────────────────────────────────────────────────────────
     GUEST_SESSION_EXPIRE_HOURS: int = 24
 
-    # ─── Easebuzz Payment ──────────────────────────────────────────────────────
-    EASEBUZZ_KEY: str = Field(..., description="Easebuzz merchant key")
-    EASEBUZZ_SALT: str = Field(..., description="Easebuzz merchant salt")
+    # ─── Easebuzz Payment (Legacy — kept for existing data, not active) ───────────
+    EASEBUZZ_KEY: str = Field(default="", description="Easebuzz merchant key (legacy, not used)")
+    EASEBUZZ_SALT: str = Field(default="", description="Easebuzz merchant salt (legacy, not used)")
     EASEBUZZ_BASE_URL: str = "https://pay.easebuzz.in"
     EASEBUZZ_ENV: Literal["test", "production"] = "test"
     PAYMENT_TIMEOUT_MINUTES: int = 15
+
+    # ─── Razorpay Payment ──────────────────────────────────────────────────────
+    RAZORPAY_KEY_ID: str = Field(
+        ...,
+        description="Razorpay Key ID (public — safe to return to frontend via API).",
+    )
+    RAZORPAY_KEY_SECRET: str = Field(
+        ...,
+        description=(
+            "Razorpay Key Secret. NEVER exposed to the frontend. "
+            "Used only for HMAC-SHA256 signature verification and order creation."
+        ),
+    )
+    RAZORPAY_BASE_URL: str = "https://api.razorpay.com/v1"
+    RAZORPAY_CURRENCY: str = "INR"
 
     # ─── WebSocket ─────────────────────────────────────────────────────────────
     WS_SECRET: str = Field(..., description="Shared secret for WebSocket message signing")

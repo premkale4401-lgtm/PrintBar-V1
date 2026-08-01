@@ -1,17 +1,21 @@
 """
 PrintBar Backend — Payment & Checkout API Endpoints
 
-POST /api/v1/checkout                 — Initiate payment (creates job + payment)
-POST /api/v1/payments/webhook         — Easebuzz webhook receiver
-GET  /api/v1/payments/{job_id}/status — Poll payment status
+POST /api/v1/payments/create-order   — Create Razorpay order (returns orderId + keyId)
+POST /api/v1/payments/verify         — Verify Razorpay HMAC-SHA256 signature
+GET  /api/v1/payments/{job_id}/status — Poll payment + job status
+
+Legacy:
+POST /api/v1/checkout                — Kept for backward compat (redirects to create-order flow)
+POST /api/v1/payments/webhook        — Kept for Easebuzz legacy PENDING payments
 """
 from __future__ import annotations
 
 import uuid
-from urllib.parse import urljoin
 
-from fastapi import APIRouter, Depends, Form, Request, status
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Request, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -24,6 +28,7 @@ from app.exceptions.base import (
     JobNotFoundError,
     PaymentAmountMismatchError,
     PaymentGatewayError,
+    PaymentOrderNotFoundError,
 )
 from app.repositories.payment_repository import PaymentRepository
 from app.repositories.print_job_repository import PrintJobRepository
@@ -34,18 +39,53 @@ router = APIRouter(tags=["Payment"])
 settings = get_settings()
 
 
+# ─── Request / Response Schemas ───────────────────────────────────────────────
+
+class RazorpayVerifyRequest(BaseModel):
+    """
+    Payload sent by the frontend after the Razorpay modal completes.
+
+    The frontend receives all three IDs directly from Razorpay's
+    payment handler callback and must relay them to this endpoint
+    for server-side signature verification.
+    """
+
+    razorpay_order_id: str = Field(
+        ...,
+        description="Razorpay order ID (e.g. order_XXXX). Returned by create-order.",
+    )
+    razorpay_payment_id: str = Field(
+        ...,
+        description="Razorpay payment ID (e.g. pay_XXXX). Set by Razorpay after payment.",
+    )
+    razorpay_signature: str = Field(
+        ...,
+        description=(
+            "HMAC-SHA256 signature from Razorpay callback. "
+            "Verified server-side with KEY_SECRET — never trusted from client."
+        ),
+    )
+    job_id: str = Field(
+        ...,
+        description="Our internal print job UUID. Links payment to the correct job.",
+    )
+
+
+# ─── Razorpay: Create Order ───────────────────────────────────────────────────
+
 @router.post(
-    "/checkout",
+    "/payments/create-order",
     status_code=status.HTTP_201_CREATED,
-    summary="Initiate payment checkout",
+    summary="Create Razorpay payment order",
     description=(
-        "Creates a print job and initiates an Easebuzz payment. "
-        "Returns the Easebuzz payment URL to redirect the user to. "
+        "Creates a print job and a Razorpay order. "
+        "Returns the Razorpay order ID, amount in paise, currency, and the public KEY_ID. "
+        "The frontend uses these to open the Razorpay Standard Checkout modal. "
+        "KEY_SECRET is never returned to the frontend. "
         "Requires a valid guest session token."
     ),
 )
-async def initiate_checkout(
-    request: Request,
+async def create_razorpay_order(
     file_id: uuid.UUID,
     color_mode: str = "BW",
     paper_size: str = "A4",
@@ -60,39 +100,56 @@ async def initiate_checkout(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """
-    Initiates the checkout flow for a validated uploaded file.
+    Creates a print job and a Razorpay payment order.
 
     The backend:
-        1. Recalculates price (never trusts frontend amount)
-        2. Creates PrintJob in QUEUED state
-        3. Creates Payment record
-        4. Calls Easebuzz to get payment URL
-        5. Returns payment URL
+        1. Validates the uploaded file belongs to the session.
+        2. Recalculates price (never trusts frontend amounts).
+        3. Creates PrintJob in PAYMENT_PENDING state.
+        4. Creates Payment record.
+        5. Calls Razorpay Orders API with Basic Auth.
+        6. Returns Razorpay order details + public KEY_ID to frontend.
 
-    The frontend redirects the user to paymentUrl.
-    Easebuzz calls our webhook on completion.
+    The frontend opens the Razorpay modal and calls /payments/verify on success.
     """
-    # Build webhook callback URLs.
-    base = str(request.base_url).rstrip("/")
-    success_url = f"{base}{settings.API_V1_PREFIX}/payments/webhook"
-    failure_url = f"{base}{settings.API_V1_PREFIX}/payments/webhook"
-
     service = PaymentService(db)
-    result = await service.initiate_checkout(
-        session_id=session_id,
-        file_id=file_id,
-        color_mode=color_mode.upper(),
-        paper_size=paper_size.upper(),
-        copies=copies,
-        duplex=duplex,
-        pages_selected=pages_selected,
-        pages_per_sheet=pages_per_sheet,
-        page_range=page_range,
-        orientation=orientation,
-        success_url=success_url,
-        failure_url=failure_url,
-        idempotency_key=idempotency_key,
-    )
+
+    try:
+        result = await service.create_razorpay_order(
+            session_id=session_id,
+            file_id=file_id,
+            color_mode=color_mode.upper(),
+            paper_size=paper_size.upper(),
+            copies=copies,
+            duplex=duplex,
+            pages_selected=pages_selected,
+            pages_per_sheet=pages_per_sheet,
+            page_range=page_range,
+            orientation=orientation,
+            idempotency_key=idempotency_key,
+        )
+    except PaymentAmountMismatchError:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "success": False,
+                "error": {
+                    "code": "PAY_003",
+                    "message": "Order amount is below the minimum required (₹1.00).",
+                },
+            },
+        )
+    except PaymentGatewayError:
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={
+                "success": False,
+                "error": {
+                    "code": "PAY_005",
+                    "message": "Payment gateway error. Please try again.",
+                },
+            },
+        )
 
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
@@ -100,68 +157,132 @@ async def initiate_checkout(
     )
 
 
+# ─── Razorpay: Verify Payment ─────────────────────────────────────────────────
+
 @router.post(
-    "/payments/webhook",
+    "/payments/verify",
     status_code=status.HTTP_200_OK,
-    summary="Easebuzz payment webhook",
+    summary="Verify Razorpay payment signature",
     description=(
-        "Receives POST callbacks from Easebuzz after payment success or failure. "
-        "This endpoint is called by Easebuzz — not by the frontend. "
-        "Verifies HMAC-SHA512 signature before processing."
+        "Verifies the Razorpay HMAC-SHA256 payment signature server-side. "
+        "Called by the frontend immediately after the Razorpay modal handler fires. "
+        "On success: marks payment as SUCCESS and transitions print job to QUEUED. "
+        "Requires a valid guest session token."
     ),
 )
-async def payment_webhook(
-    request: Request,
+async def verify_razorpay_payment(
+    request_body: RazorpayVerifyRequest,
+    session_id: str = Depends(get_current_guest_session),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """
-    Processes an Easebuzz payment webhook.
+    Verifies a Razorpay payment and queues the print job.
 
-    Easebuzz sends form-encoded POST data to this endpoint.
-    The raw payload is always stored before any processing.
+    Security:
+        - HMAC-SHA256 signature is verified server-side with KEY_SECRET.
+        - Constant-time comparison prevents timing attacks.
+        - Amount is re-validated against the stored Payment record.
+        - Duplicate verification attempts are rejected.
+        - Raw payload is stored in webhook log before any processing.
 
-    Returns 200 to Easebuzz regardless of processing outcome
-    (prevents Easebuzz from retrying valid but rejected webhooks).
+    Returns 200 on success. Returns 4xx on verification failure.
     """
-    # Parse form data from Easebuzz.
-    form_data = await request.form()
-    payload = dict(form_data)
-
-    logger.info(
-        "webhook_received",
-        txnid=payload.get("txnid"),
-        status=payload.get("status"),
-    )
+    try:
+        job_uuid = uuid.UUID(request_body.job_id)
+    except (ValueError, AttributeError):
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "success": False,
+                "error": {"code": "PAY_006", "message": "Invalid job ID format."},
+            },
+        )
 
     service = PaymentService(db)
 
     try:
-        result = await service.process_webhook(payload)
-        return JSONResponse(content={"success": True, "data": result})
+        result = await service.verify_razorpay_payment(
+            razorpay_order_id=request_body.razorpay_order_id,
+            razorpay_payment_id=request_body.razorpay_payment_id,
+            razorpay_signature=request_body.razorpay_signature,
+            job_id=job_uuid,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "data": result},
+        )
 
     except InvalidPaymentSignatureError:
-        # Log and return 200 — invalid signature is a security event, not a retry case.
-        logger.warning("webhook_rejected_invalid_signature")
-        return JSONResponse(
-            content={"success": False, "error": {"code": "PAY_001", "message": "Signature invalid"}},
+        logger.warning(
+            "verify_endpoint_signature_failed",
+            job_id=request_body.job_id,
+            order_id=request_body.razorpay_order_id,
         )
-    except DuplicatePaymentError:
-        return JSONResponse(content={"success": True, "message": "Already processed"})
-    except PaymentAmountMismatchError:
-        logger.error("webhook_amount_mismatch")
         return JSONResponse(
-            content={"success": False, "error": {"code": "PAY_003", "message": "Amount mismatch"}},
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "success": False,
+                "error": {
+                    "code": "PAY_001",
+                    "message": "Payment signature verification failed.",
+                },
+            },
         )
-    except Exception as exc:
-        logger.exception("webhook_unexpected_error", error=str(exc))
-        # Return 200 to prevent Easebuzz retries while we investigate.
-        return JSONResponse(content={"success": False, "error": {"code": "SYS_000"}})
 
+    except DuplicatePaymentError:
+        # Idempotent — return success for already-processed payments.
+        logger.info(
+            "verify_endpoint_duplicate_ignored",
+            job_id=request_body.job_id,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "message": "Already processed."},
+        )
+
+    except PaymentOrderNotFoundError:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "success": False,
+                "error": {"code": "PAY_006", "message": "Payment order not found."},
+            },
+        )
+
+    except PaymentAmountMismatchError:
+        logger.error(
+            "verify_endpoint_amount_mismatch",
+            job_id=request_body.job_id,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "success": False,
+                "error": {
+                    "code": "PAY_003",
+                    "message": "Payment amount does not match the order.",
+                },
+            },
+        )
+
+    except Exception as exc:
+        logger.exception("verify_endpoint_unexpected_error", error=str(exc))
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"success": False, "error": {"code": "SYS_000"}},
+        )
+
+
+# ─── Status Polling ───────────────────────────────────────────────────────────
 
 @router.get(
     "/payments/{job_id}/status",
     summary="Get payment status for a job",
-    description="Polls the payment status for a print job. Used by the frontend to detect completion.",
+    description=(
+        "Polls the payment and job status for a print job. "
+        "Call every 3 seconds after the Razorpay modal closes "
+        "until jobStatus reaches QUEUED, PRINTING, or COMPLETED."
+    ),
 )
 async def get_payment_status(
     job_id: uuid.UUID,
@@ -170,8 +291,6 @@ async def get_payment_status(
 ) -> dict:
     """
     Returns the current payment and job status for polling.
-
-    The frontend polls this every 3 seconds after redirecting back from Easebuzz.
 
     Returns:
         paymentStatus: CREATED | PENDING | SUCCESS | FAILED | EXPIRED

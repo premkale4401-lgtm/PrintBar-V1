@@ -102,6 +102,7 @@ ROLE_KIOSK = "KIOSK"
 
 # ─── Payment Gateway ───────────────────────────────────────────────────────────
 PAYMENT_GATEWAY_EASEBUZZ = "EASEBUZZ"
+PAYMENT_GATEWAY_RAZORPAY = "RAZORPAY"
 
 # ─── Currency ──────────────────────────────────────────────────────────────────
 DEFAULT_CURRENCY = "INR"

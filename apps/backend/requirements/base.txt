@@ -45,5 +45,9 @@ pypdf==5.1.0
 # python-magic requires libmagic C library — use python-magic-bin on Linux/Docker
 # or pure Python fallback. We use pypdf magic-byte inspection instead (no C dep).
 
+# ─── Payment Gateways ─────────────────────────────────────────────────────────
+# Razorpay official Python SDK (order creation + signature verification)
+razorpay==1.4.2
+
 # ─── Utilities ────────────────────────────────────────────────────────────────
 python-dotenv==1.0.1

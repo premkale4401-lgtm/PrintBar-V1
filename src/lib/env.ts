@@ -28,3 +28,14 @@ export const SUPABASE_URL: string =
 /** Supabase anonymous key */
 export const SUPABASE_ANON_KEY: string =
   (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '';
+
+/**
+ * Razorpay public Key ID.
+ *
+ * This is the ONLY Razorpay variable in the frontend bundle.
+ * VITE_RAZORPAY_KEY_SECRET must NEVER exist — KEY_SECRET is backend-only.
+ * The KEY_ID is returned by the backend create-order endpoint, but we also
+ * read it here so the checkout hook can open the modal immediately.
+ */
+export const RAZORPAY_KEY_ID: string =
+  (import.meta.env.VITE_RAZORPAY_KEY_ID as string | undefined) ?? '';
