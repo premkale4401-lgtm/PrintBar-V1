@@ -160,10 +160,10 @@ export function useCheckout(): UseCheckoutResult {
   /**
    * Full checkout flow:
    *   1. Create order
-   *   2. Load Razorpay script
-   *   3. Open Razorpay modal
-   *   4. On success: verify server-side → call onSuccess
-   *   5. On dismiss: cancel payment in DB
+   *   2a. MOCK MODE: Call devCompletePayment → same downstream flow as real payment
+   *   2b. REAL MODE: Load Razorpay script → Open modal → verify server-side
+   *   3. On success: call onSuccess
+   *   4. On dismiss (real mode only): cancel payment in DB
    */
   const initiateCheckout = useCallback(async (
     config: PrintConfig,
@@ -176,19 +176,38 @@ export function useCheckout(): UseCheckoutResult {
     setErrorCode(null);
 
     try {
-      // Step 1: Load Razorpay SDK (loaded lazily — not referenced in UI).
-      const scriptLoaded = await loadRazorpayScript();
-      if (!scriptLoaded) {
-        throw new Error('Failed to load payment SDK. Please check your network connection.');
-      }
-
-      // Step 2: Create order on backend.
+      // Step 1: Create order on backend.
       const params = buildCheckoutParams(config, pageCount, fileId);
       const orderResult = await paymentService.createOrder(params);
 
       sessionStorage.setItem(JOB_ID_STORAGE_KEY, orderResult.jobId);
       setJobId(orderResult.jobId);
       currentJobIdRef.current = orderResult.jobId;
+
+      // Step 2a: Mock mode — bypass gateway entirely.
+      // Executes the identical downstream flow: PAYMENT_SUCCESS → QUEUED → print.
+      if (orderResult.isMockMode) {
+        await paymentService.devCompletePayment(orderResult.jobId);
+
+        if (onSuccess) {
+          onSuccess(orderResult.jobId);
+        }
+
+        return {
+          jobId: orderResult.jobId,
+          paymentId: orderResult.paymentId,
+          paymentUrl: '',
+          amount: orderResult.totalInr,
+          currency: orderResult.currency || 'INR',
+          status: 'VERIFYING',
+        };
+      }
+
+      // Step 2b: Real payment mode — load gateway SDK and open modal.
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        throw new Error('Failed to load payment SDK. Please check your network connection.');
+      }
 
       // Step 3: Open Razorpay modal (the UI never knows it's Razorpay).
       return await new Promise<CheckoutResult | null>((resolve) => {
@@ -284,6 +303,7 @@ export function useCheckout(): UseCheckoutResult {
       setIsLoading(false);
     }
   }, []);
+
 
   function handleError(err: unknown): void {
     if (err instanceof PrintBarApiError) {

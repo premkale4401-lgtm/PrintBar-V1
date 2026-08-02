@@ -64,6 +64,12 @@ export interface OrderResult {
   totalInr: string;
   breakdown?: Record<string, unknown>;
   idempotent?: boolean;
+  /**
+   * True when PAYMENT_PROVIDER=mock is active on the backend.
+   * When true, the frontend shows a "Complete Payment" button instead of
+   * the real payment gateway modal.
+   */
+  isMockMode?: boolean;
 }
 
 export interface PaymentVerifyResult {
