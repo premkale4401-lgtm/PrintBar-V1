@@ -152,6 +152,14 @@ class WebSocketManager:
         if conn := self._connections.get(kiosk_id):
             conn.last_heartbeat = datetime.now(tz=UTC)
 
+    async def broadcast_to_all(self, message_type: str, data: dict) -> int:
+        """Alias for broadcast — sends to all connected kiosks."""
+        return await self.broadcast(message_type, data)
+
+    async def ping_all(self) -> None:
+        """Sends PING to all connected kiosks. Used by background keepalive worker."""
+        await self.broadcast("PING", {"serverTime": datetime.now(tz=UTC).isoformat()})
+
 
 # Module-level singleton — shared across all WebSocket routes.
 ws_manager = WebSocketManager()

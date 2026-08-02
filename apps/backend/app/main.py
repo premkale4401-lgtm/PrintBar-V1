@@ -38,6 +38,9 @@ from app.api.v1.admin_auth import router as admin_auth_router
 from app.api.v1.admin import router as admin_router
 from app.api.v1.kiosk_ws import router as kiosk_ws_router
 from app.api.v1.dev_payment import router as dev_payment_router
+from app.api.v1.kiosks import router as kiosks_router
+from app.api.v1.printers import router as printers_router
+from app.api.v1.system import router as system_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -151,9 +154,13 @@ def create_application() -> FastAPI:
     # Admin endpoints.
     app.include_router(admin_auth_router, prefix=settings.API_V1_PREFIX)
     app.include_router(admin_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(kiosks_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(printers_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(system_router, prefix=settings.API_V1_PREFIX)
 
-    # Development-only endpoints — NEVER mounted in production.
-    if settings.ENVIRONMENT == "development":
+    # Mock payment bypass — available in dev mode OR when PAYMENT_PROVIDER=mock.
+    # Never active when a real payment provider is configured in production.
+    if settings.ENVIRONMENT == "development" or settings.is_mock_payment:
         app.include_router(dev_payment_router, prefix=settings.API_V1_PREFIX)
 
     return app

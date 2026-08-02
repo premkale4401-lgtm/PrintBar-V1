@@ -154,10 +154,14 @@ async def create_payment_order(
             content={"success": False, "error": {"code": "SYS_000"}},
         )
 
+    # Inject mock mode flag so frontend can show "Complete Payment" button.
+    result["isMockMode"] = settings.is_mock_payment
+
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
         content={"success": True, "data": result},
     )
+
 
 
 # ─── Verify Payment Callback ──────────────────────────────────────────────────
@@ -299,7 +303,22 @@ async def razorpay_webhook(
             content={"success": False, "error": "Empty body"},
         )
 
+    # Webhook processing is not applicable in mock payment mode.
+    # In mock mode, payment completion is triggered by POST /payments/dev/complete.
+    if settings.is_mock_payment:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "success": False,
+                "error": {
+                    "code": "PAY_007",
+                    "message": "Webhook not available in mock payment mode.",
+                },
+            },
+        )
+
     service = PaymentService(db)
+
 
     try:
         result = await service.process_webhook(

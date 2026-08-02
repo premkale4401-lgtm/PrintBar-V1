@@ -58,11 +58,16 @@ async def dev_complete_payment(
     """
     DEV ONLY: Bypasses payment gateway and marks payment as SUCCESS immediately.
     """
-    # Hard guard — NEVER allow in staging or production.
-    if settings.ENVIRONMENT != "development":
+    # Hard guard — only allow in development OR when mock payment provider is active.
+    # This prevents accidental use in production with real payment gateways.
+    is_dev = settings.ENVIRONMENT == "development"
+    is_mock = settings.is_mock_payment
+
+    if not is_dev and not is_mock:
         logger.warning(
-            "dev_complete_payment_blocked_non_dev",
+            "dev_complete_payment_blocked",
             environment=settings.ENVIRONMENT,
+            payment_provider=settings.PAYMENT_PROVIDER,
         )
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -70,10 +75,14 @@ async def dev_complete_payment(
                 "success": False,
                 "error": {
                     "code": "DEV_001",
-                    "message": "This endpoint is only available in development mode.",
+                    "message": (
+                        "This endpoint requires ENVIRONMENT=development or "
+                        "PAYMENT_PROVIDER=mock."
+                    ),
                 },
             },
         )
+
 
     logger.warning(
         "dev_payment_bypass_used",

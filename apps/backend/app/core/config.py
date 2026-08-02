@@ -82,6 +82,14 @@ class Settings(BaseSettings):
     # ─── Guest Session ─────────────────────────────────────────────────────────
     GUEST_SESSION_EXPIRE_HOURS: int = 24
 
+    # ─── Payment Provider ──────────────────────────────────────────────────────
+    # Controls which payment gateway is active.
+    # "mock"     — No real gateway. Use POST /payments/dev/complete to complete payments.
+    #              Safe for development and CI without any gateway credentials.
+    # "razorpay" — Razorpay gateway. Requires RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.
+    # "easebuzz" — Easebuzz gateway (legacy — requires EASEBUZZ_KEY and EASEBUZZ_SALT).
+    PAYMENT_PROVIDER: Literal["mock", "razorpay", "easebuzz"] = "mock"
+
     # ─── Easebuzz Payment (Legacy — kept for existing data, not active) ───────────
     EASEBUZZ_KEY: str = Field(default="", description="Easebuzz merchant key (legacy, not used)")
     EASEBUZZ_SALT: str = Field(default="", description="Easebuzz merchant salt (legacy, not used)")
@@ -90,12 +98,13 @@ class Settings(BaseSettings):
     PAYMENT_TIMEOUT_MINUTES: int = 15
 
     # ─── Razorpay Payment ──────────────────────────────────────────────────────
+    # Required only when PAYMENT_PROVIDER=razorpay.
     RAZORPAY_KEY_ID: str = Field(
-        ...,
+        default="",
         description="Razorpay Key ID (public — safe to return to frontend via API).",
     )
     RAZORPAY_KEY_SECRET: str = Field(
-        ...,
+        default="",
         description=(
             "Razorpay Key Secret. NEVER exposed to the frontend. "
             "Used only for HMAC-SHA256 signature verification and order creation."
@@ -143,9 +152,35 @@ class Settings(BaseSettings):
     @field_validator("JWT_SECRET")
     @classmethod
     def validate_jwt_secret(cls, v: str) -> str:
+        """Enforces a minimum JWT secret length to prevent weak signing keys."""
         if len(v) < 32:
             raise ValueError("JWT_SECRET must be at least 32 characters long")
         return v
+
+    def validate_payment_provider_credentials(self) -> None:
+        """
+        Enforces that gateway credentials are set when a real provider is selected.
+
+        Called at application startup to fail fast if configuration is incomplete.
+        Mock mode requires no credentials and is always safe.
+        """
+        if self.PAYMENT_PROVIDER == "razorpay":
+            if not self.RAZORPAY_KEY_ID or not self.RAZORPAY_KEY_SECRET:
+                raise ValueError(
+                    "PAYMENT_PROVIDER=razorpay requires RAZORPAY_KEY_ID and "
+                    "RAZORPAY_KEY_SECRET to be set in the environment."
+                )
+        elif self.PAYMENT_PROVIDER == "easebuzz":
+            if not self.EASEBUZZ_KEY or not self.EASEBUZZ_SALT:
+                raise ValueError(
+                    "PAYMENT_PROVIDER=easebuzz requires EASEBUZZ_KEY and "
+                    "EASEBUZZ_SALT to be set in the environment."
+                )
+
+    @property
+    def is_mock_payment(self) -> bool:
+        """True when the mock payment provider is active."""
+        return self.PAYMENT_PROVIDER == "mock"
 
     @property
     def allowed_origins_list(self) -> list[str]:
