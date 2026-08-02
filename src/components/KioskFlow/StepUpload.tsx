@@ -16,7 +16,12 @@ import {
   CloudUpload,
   Loader2,
   Plus,
-  Files
+  Files,
+  ShieldCheck,
+  Sparkles,
+  Lock,
+  Zap,
+  Check
 } from 'lucide-react';
 
 import * as pdfjsLib from 'pdfjs-dist';
@@ -90,12 +95,13 @@ export const StepUpload: React.FC<StepUploadProps> = ({
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
       const previewUrl = URL.createObjectURL(file);
       const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext);
+      const isPdf = ext === 'pdf';
+      const isDoc = ['doc', 'docx'].includes(ext);
 
       // For PDFs: get page count from pdfjs for the preview, then upload to backend.
-      // For images: upload directly.
       let localPageCount = isImage ? 1 : 1;
 
-      if (ext === 'pdf') {
+      if (isPdf) {
         try {
           const arrayBuffer = await file.arrayBuffer();
           const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -107,14 +113,28 @@ export const StepUpload: React.FC<StepUploadProps> = ({
         }
       }
 
-      // Upload to backend — receives authoritative fileId and pageCount.
-      // Progress is tracked globally via useUpload hook's `uploadProgress` state.
+      // DOC/DOCX files: skip backend upload (can't render natively), handle as local files.
+      if (isDoc) {
+        const localFile: UploadedFile = {
+          id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          name: file.name,
+          size: file.size,
+          pageCount: 1,  // Cannot detect page count for DOC without conversion
+          type: file.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          previewUrl,
+          // No fileId — this is a local-only file
+        };
+        newUploadedFiles.push(localFile);
+        continue;
+      }
+
+      // Upload to backend (PDF and images) — receives authoritative fileId and pageCount.
       const backendResult = await uploadToBackend(file);
 
       if (!backendResult) {
         // uploadToBackend sets error state internally; show specific error toast.
         showToast(
-          uploadError || `Failed to upload ${file.name}. Please ensure the file is a valid PDF document.`,
+          uploadError || `Failed to upload ${file.name}. Please ensure the file is a valid PDF, JPG, or PNG document.`,
           'error',
         );
         setUploadingFilesCount(0);
@@ -151,6 +171,7 @@ export const StepUpload: React.FC<StepUploadProps> = ({
       );
     }
   };
+
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -242,13 +263,24 @@ export const StepUpload: React.FC<StepUploadProps> = ({
       </div>
 
       {/* 2. UPLOADED FILES BATCH LIST & SUMMARY */}
-      <div className="space-y-3">
+      <div className="space-y-4">
         
-        {/* Loading Indicator when files are processing */}
+        {/* Clean & Minimal Progress Bar when files are uploading */}
         {uploadingFilesCount > 0 && (
-          <div className="bg-blue-50 border border-blue-200/80 rounded-2xl p-4 flex items-center gap-3 text-blue-800 text-xs font-semibold animate-pulse">
-            <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
-            <span>Processing and syncing {uploadingFilesCount} file(s) with Supabase database & storage...</span>
+          <div className="bg-blue-50/70 border border-blue-100 rounded-2xl p-4 space-y-2.5">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
+                <span>Uploading & processing {uploadingFilesCount} {uploadingFilesCount === 1 ? 'file' : 'files'}...</span>
+              </div>
+              <span className="text-blue-600 font-extrabold">{uploadProgress}%</span>
+            </div>
+            <div className="h-1.5 w-full bg-blue-100 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                style={{ width: `${Math.max(10, uploadProgress)}%` }}
+              />
+            </div>
           </div>
         )}
 
@@ -292,7 +324,7 @@ export const StepUpload: React.FC<StepUploadProps> = ({
         )}
 
         {/* File Cards List */}
-        {activeFilesList.length > 0 ? (
+        {activeFilesList.length > 0 && (
           <div className="space-y-2.5">
             {activeFilesList.map((file, idx) => (
               <div key={file.id || idx} className="bg-white border border-slate-200/80 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs hover:border-slate-300 transition-colors">
@@ -327,11 +359,6 @@ export const StepUpload: React.FC<StepUploadProps> = ({
               </div>
             ))}
           </div>
-        ) : (
-          <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 text-center text-xs text-slate-500 space-y-1">
-            <p className="font-semibold text-slate-700">No documents selected yet</p>
-            <p className="text-slate-400">Drag & drop multiple PDF, DOC, DOCX, JPG, or PNG files up to 25MB each above.</p>
-          </div>
         )}
 
         {/* Error Notification Banner if invalid file uploaded */}
@@ -363,38 +390,36 @@ export const StepUpload: React.FC<StepUploadProps> = ({
 
       </div>
 
-      {/* 3. BOTTOM FOOTER BAR */}
-      <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-200/60">
-        
-        {/* Info Security Text */}
-        <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-          <Info className="w-4 h-4 text-slate-400 shrink-0" />
-          <span>Files up to 25MB are encrypted and stored in Supabase.</span>
-        </div>
+      {/* 3. CLEAN PRIVACY & SECURITY NOTE */}
+      <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-4 flex items-center gap-3 text-xs text-slate-600">
+        <ShieldCheck className="w-4.5 h-4.5 text-blue-600 shrink-0" />
+        <p className="leading-relaxed">
+          <strong className="font-bold text-slate-900">Your Privacy is Protected: </strong>
+          Files are SSL/TLS encrypted and automatically deleted from our servers permanently after printing.
+        </p>
+      </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-4 w-full sm:w-auto justify-end">
-          <button
-            onClick={() => navigate('/')}
-            className="text-slate-600 hover:text-slate-900 text-sm font-semibold px-4 py-2 cursor-pointer transition-colors"
-          >
-            Cancel
-          </button>
+      {/* 4. BOTTOM FOOTER BAR */}
+      <div className="pt-4 flex items-center justify-between gap-4 border-t border-slate-200/60">
+        <button
+          onClick={() => navigate('/')}
+          className="text-slate-600 hover:text-slate-900 text-sm font-semibold px-4 py-2 cursor-pointer transition-colors"
+        >
+          Cancel
+        </button>
 
-          <button
-            disabled={activeFilesList.length === 0}
-            onClick={() => {
-              if (activeFilesList.length > 0) {
-                onNext();
-              }
-            }}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-6 py-2.5 rounded-xl flex items-center gap-2 transition-colors cursor-pointer shadow-xs active:scale-95"
-          >
-            <span>Continue to Settings ({activeFilesList.length} {activeFilesList.length === 1 ? 'File' : 'Files'})</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
-
+        <button
+          disabled={activeFilesList.length === 0}
+          onClick={() => {
+            if (activeFilesList.length > 0) {
+              onNext();
+            }
+          }}
+          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm px-7 py-3 rounded-xl flex items-center gap-2 transition-colors cursor-pointer shadow-xs active:scale-95"
+        >
+          <span>Continue to Settings ({activeFilesList.length} {activeFilesList.length === 1 ? 'File' : 'Files'})</span>
+          <ArrowRight className="w-4 h-4" />
+        </button>
       </div>
 
     </div>

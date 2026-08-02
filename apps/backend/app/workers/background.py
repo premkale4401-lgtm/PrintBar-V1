@@ -191,6 +191,92 @@ async def run_job_dispatch_worker() -> None:
         await asyncio.sleep(30)
 
 
+async def run_simulated_kiosk_worker() -> None:
+    """
+    Development & Testing Worker:
+    Automatically processes QUEUED or in-progress jobs when no real physical kiosk is connected.
+    Simulates the print lifecycle (QUEUED -> ASSIGNED -> DOWNLOADING -> READY_TO_PRINT -> PRINTING -> COMPLETED).
+
+    Only active when ENVIRONMENT == 'development'.
+    If a real hardware kiosk connects via WebSocket, real dispatching takes over.
+    """
+    logger.info("simulated_kiosk_worker_started")
+
+    while True:
+        try:
+            if settings.ENVIRONMENT == "development":
+                from app.websocket.manager import ws_manager
+
+                has_real_kiosks = len(ws_manager._connections) > 0
+                if not has_real_kiosks:
+                    active_jobs: list[tuple[str, str]] = []
+                    async with AsyncSessionFactory() as db:
+                        from app.repositories.print_job_repository import PrintJobRepository
+                        job_repo = PrintJobRepository(db)
+                        jobs = await job_repo.get_active_uncompleted_jobs()
+                        active_jobs = [(str(j.id), j.status) for j in jobs]
+
+                    for job_id_str, current_st in active_jobs:
+                        import uuid
+                        job_id = uuid.UUID(job_id_str)
+                        logger.info("simulated_kiosk_processing_job", job_id=job_id_str, current_status=current_st)
+
+                        async def _do_transition(to_st: str):
+                            async with AsyncSessionFactory() as db:
+                                jr = PrintJobRepository(db)
+                                await jr.transition(job_id, to_st)
+                                await db.commit()
+
+                        # Step sequence depending on starting status
+                        if current_st == "QUEUED":
+                            await _do_transition("ASSIGNED")
+                            await asyncio.sleep(1.0)
+                            current_st = "ASSIGNED"
+
+                        if current_st == "ASSIGNED":
+                            await _do_transition("DOWNLOADING")
+                            await asyncio.sleep(1.2)
+                            current_st = "DOWNLOADING"
+
+                        if current_st == "DOWNLOADING":
+                            await _do_transition("READY_TO_PRINT")
+                            await asyncio.sleep(1.0)
+                            current_st = "READY_TO_PRINT"
+
+                        if current_st == "READY_TO_PRINT":
+                            await _do_transition("PRINTING")
+                            await asyncio.sleep(1.5)
+                            current_st = "PRINTING"
+
+                        if current_st == "PRINTING":
+                            async with AsyncSessionFactory() as db:
+                                from app.repositories.uploaded_file_repository import UploadedFileRepository
+                                from app.repositories.print_job_repository import PrintJobRepository
+                                from app.storage.service import storage_service
+
+                                jr = PrintJobRepository(db)
+                                fr = UploadedFileRepository(db)
+
+                                job = await jr.get_by_id(job_id)
+                                if job:
+                                    await jr.mark_completed(job_id)
+                                    if job.uploaded_file_id:
+                                        uf = await fr.get_by_id(job.uploaded_file_id)
+                                        if uf and not uf.is_deleted and uf.storage_path:
+                                            await storage_service.delete_file(
+                                                bucket=uf.storage_bucket,
+                                                object_path=uf.storage_path,
+                                            )
+                                            await fr.mark_deleted(job.uploaded_file_id)
+                                    await db.commit()
+                            logger.info("simulated_kiosk_job_completed", job_id=job_id_str)
+
+        except Exception as exc:
+            logger.exception("simulated_kiosk_worker_error", error=str(exc))
+
+        await asyncio.sleep(2)
+
+
 async def start_all_workers() -> None:
     """
     Starts all background workers as asyncio tasks.
@@ -202,4 +288,8 @@ async def start_all_workers() -> None:
     asyncio.create_task(run_payment_expiry_worker(), name="payment_expiry_worker")
     asyncio.create_task(run_job_dispatch_worker(), name="job_dispatch_worker")
 
+    if settings.ENVIRONMENT == "development":
+        asyncio.create_task(run_simulated_kiosk_worker(), name="simulated_kiosk_worker")
+
     logger.info("all_background_workers_started")
+

@@ -1,23 +1,30 @@
 """
-PrintBar Backend — PDF Upload Validation Pipeline
+PrintBar Backend — File Upload Validation Pipeline
 
-Validates uploaded PDF files through 10 sequential steps before
+Validates uploaded files (PDF, JPG, PNG) through sequential steps before
 storing them in Supabase Storage.
 
-Validation steps (in order):
-    1. Extension check  — must be .pdf (case-insensitive)
-    2. MIME type check  — Content-Type must be application/pdf
-    3. Magic bytes      — first 4 bytes must be %PDF
+Supported file types:
+    - PDF:  application/pdf (.pdf)
+    - JPEG: image/jpeg (.jpg, .jpeg)
+    - PNG:  image/png (.png)
+
+Validation steps for PDFs (in order):
+    1. Extension check  — must be .pdf, .jpg, .jpeg, or .png (case-insensitive)
+    2. MIME type check  — must be a supported MIME type
+    3. Magic bytes      — first bytes must match file type signature
     4. Size limit       — must not exceed MAX_FILE_SIZE_MB
-    5. PDF parsability  — must be openable by pypdf
-    6. Page count ≥ 1   — must have at least one page
-    7. Page count limit — must not exceed MAX_PAGE_COUNT
-    8. Password check   — must not be password-protected
-    9. JavaScript check — must not contain embedded JavaScript
-    10. Corruption check — pages must be readable
+    5. PDF parsability  — must be openable by pypdf (PDF only)
+    6. Page count ≥ 1   — must have at least one page (PDF only)
+    7. Page count limit — must not exceed MAX_PAGE_COUNT (PDF only)
+    8. Password check   — must not be password-protected (PDF only)
+    9. JavaScript check — must not contain embedded JavaScript (PDF only)
+    10. Corruption check — pages must be readable (PDF only)
+
+For images (JPG/PNG), steps 5–10 are replaced by image-specific validation.
 
 If any step fails, an appropriate exception is raised with the
-corresponding error code (UPLOAD_001 through UPLOAD_009).
+corresponding error code.
 
 No partial uploads are stored. Validation runs entirely in memory
 before any Supabase Storage write occurs.
@@ -26,6 +33,7 @@ before any Supabase Storage write occurs.
 from __future__ import annotations
 
 import io
+import struct
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -45,19 +53,42 @@ settings = get_settings()
 
 # PDF magic bytes: every valid PDF must start with %PDF
 _PDF_MAGIC = b"%PDF"
+# JPEG magic bytes (SOI marker)
+_JPEG_MAGIC = b"\xff\xd8\xff"
+# PNG magic bytes
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+# Supported extensions and their MIME types
+_SUPPORTED_TYPES: dict[str, str] = {
+    "pdf": "application/pdf",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+}
+
+_SUPPORTED_EXTENSIONS = set(_SUPPORTED_TYPES.keys())
+
+_SUPPORTED_MIMES = {
+    "application/pdf",
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+}
 
 
 class PDFValidator:
     """
-    Validates a PDF file through 10 sequential steps.
+    Validates an uploaded file (PDF, JPG, or PNG) before storage.
 
-    All validation is stateless — create a new instance per validation run,
-    or use the module-level validate() function for convenience.
+    For PDFs: runs the full 10-step validation pipeline.
+    For images: validates magic bytes, size, and image integrity.
+
+    Returns the page count (1 for images, actual count for PDFs).
     """
 
     def validate(self, filename: str, content_type: str, file_bytes: bytes) -> int:
         """
-        Runs all 10 validation steps against the provided file data.
+        Runs validation against the provided file data.
 
         Args:
             filename:     Original filename from the upload.
@@ -65,58 +96,95 @@ class PDFValidator:
             file_bytes:   Complete file content as bytes.
 
         Returns:
-            Page count (int) — number of pages in the valid PDF.
+            Page count (int) — 1 for images, actual page count for PDFs.
 
         Raises:
-            UnsupportedFileTypeError: Step 1 or 2 fails.
-            InvalidPDFError:          Step 3 or PDF structure is broken.
-            FileTooLargeError:        Step 4 fails.
-            ZeroPagesError:           Step 6 fails.
-            TooManyPagesError:        Step 7 fails.
-            PasswordProtectedPDFError: Step 8 fails.
-            EmbeddedJavaScriptError:  Step 9 fails.
-            CorruptedPDFError:        Step 10 fails.
+            UnsupportedFileTypeError: File type is not supported.
+            FileTooLargeError:        File exceeds size limit.
+            InvalidPDFError:          PDF structure is invalid.
+            ZeroPagesError:           PDF has no pages.
+            TooManyPagesError:        PDF exceeds page limit.
+            PasswordProtectedPDFError: PDF is encrypted.
+            EmbeddedJavaScriptError:  PDF contains JavaScript.
+            CorruptedPDFError:        PDF pages are unreadable.
         """
-        self._step1_check_extension(filename)
+        extension = self._get_extension(filename)
+
+        # Step 1: Validate extension
+        self._step1_check_extension(filename, extension)
+
+        # Step 2: Validate MIME type
         self._step2_check_mime_type(content_type)
-        self._step3_check_magic_bytes(file_bytes)
+
+        # Step 3: Validate magic bytes
+        self._step3_check_magic_bytes(extension, file_bytes)
+
+        # Step 4: Check file size
         self._step4_check_size(file_bytes)
-        reader = self._step5_parse_pdf(file_bytes)
-        page_count = self._step6_check_min_pages(reader)
-        self._step7_check_max_pages(page_count)
-        self._step8_check_password_protection(reader)
-        self._step9_check_embedded_javascript(reader)
-        self._step10_check_corruption(reader)
+
+        # Steps 5–10: Type-specific validation
+        if extension == "pdf":
+            reader = self._step5_parse_pdf(file_bytes)
+            page_count = self._step6_check_min_pages(reader)
+            self._step7_check_max_pages(page_count)
+            self._step8_check_password_protection(reader)
+            self._step9_check_embedded_javascript(reader)
+            self._step10_check_corruption(reader)
+        else:
+            # For images, validate the image can be decoded
+            page_count = self._validate_image(extension, file_bytes)
 
         logger.info(
-            "pdf_validation_passed",
+            "file_validation_passed",
             filename=filename,
+            extension=extension,
             page_count=page_count,
             size_bytes=len(file_bytes),
         )
         return page_count
 
+    # ─── Helpers ───────────────────────────────────────────────────────────────
+
+    def _get_extension(self, filename: str) -> str:
+        """Extracts and lowercases the file extension."""
+        if "." not in filename:
+            return ""
+        return filename.rsplit(".", 1)[-1].lower()
+
     # ─── Validation Steps ──────────────────────────────────────────────────────
 
-    def _step1_check_extension(self, filename: str) -> None:
-        """Step 1: File extension must be .pdf (case-insensitive)."""
-        if not filename.lower().endswith(".pdf"):
-            logger.warning("upload_validation_fail_extension", filename=filename)
+    def _step1_check_extension(self, filename: str, extension: str) -> None:
+        """Step 1: Extension must be pdf, jpg, jpeg, or png (case-insensitive)."""
+        if extension not in _SUPPORTED_EXTENSIONS:
+            logger.warning(
+                "upload_validation_fail_extension",
+                filename=filename,
+                extension=extension,
+            )
             raise UnsupportedFileTypeError()
 
     def _step2_check_mime_type(self, content_type: str) -> None:
-        """Step 2: MIME type must be application/pdf."""
+        """Step 2: MIME type must be a supported type."""
         # Accept content_type with optional charset parameter.
         base_mime = content_type.split(";")[0].strip().lower()
-        if base_mime != "application/pdf":
+        if base_mime not in _SUPPORTED_MIMES:
             logger.warning("upload_validation_fail_mime", content_type=content_type)
             raise UnsupportedFileTypeError()
 
-    def _step3_check_magic_bytes(self, file_bytes: bytes) -> None:
-        """Step 3: First 4 bytes must be %PDF."""
-        if not file_bytes[:4] == _PDF_MAGIC:
-            logger.warning("upload_validation_fail_magic")
-            raise InvalidPDFError("File does not appear to be a valid PDF.")
+    def _step3_check_magic_bytes(self, extension: str, file_bytes: bytes) -> None:
+        """Step 3: First bytes must match the expected file signature."""
+        if extension == "pdf":
+            if not file_bytes[:4] == _PDF_MAGIC:
+                logger.warning("upload_validation_fail_magic_pdf")
+                raise InvalidPDFError("File does not appear to be a valid PDF.")
+        elif extension in ("jpg", "jpeg"):
+            if not file_bytes[:3] == _JPEG_MAGIC:
+                logger.warning("upload_validation_fail_magic_jpeg")
+                raise InvalidPDFError("File does not appear to be a valid JPEG image.")
+        elif extension == "png":
+            if not file_bytes[:8] == _PNG_MAGIC:
+                logger.warning("upload_validation_fail_magic_png")
+                raise InvalidPDFError("File does not appear to be a valid PNG image.")
 
     def _step4_check_size(self, file_bytes: bytes) -> None:
         """Step 4: File must not exceed MAX_FILE_SIZE_MB."""
@@ -223,6 +291,36 @@ class PDFValidator:
         except Exception as exc:
             logger.warning("upload_validation_fail_read", error=str(exc))
             raise CorruptedPDFError()
+
+    def _validate_image(self, extension: str, file_bytes: bytes) -> int:
+        """
+        Validates image files (JPG, PNG).
+
+        Uses Pillow if available, otherwise falls back to basic magic-byte validation.
+        Returns 1 as images are treated as single-page documents.
+
+        Raises:
+            InvalidPDFError: If the image cannot be decoded/opened.
+        """
+        try:
+            from PIL import Image
+            img = Image.open(io.BytesIO(file_bytes))
+            img.verify()  # Raises if image is corrupted
+        except ImportError:
+            # Pillow not installed — magic bytes already checked in step 3, allow through.
+            logger.warning(
+                "pillow_not_installed_skipping_image_validation",
+                extension=extension,
+            )
+        except Exception as exc:
+            logger.warning(
+                "upload_validation_fail_image",
+                extension=extension,
+                error=str(exc),
+            )
+            raise InvalidPDFError(f"The file does not appear to be a valid {extension.upper()} image.")
+
+        return 1  # Images are always treated as 1-page documents
 
 
 # Module-level singleton.

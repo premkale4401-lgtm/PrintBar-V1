@@ -101,6 +101,14 @@ class Settings(BaseSettings):
             "Used only for HMAC-SHA256 signature verification and order creation."
         ),
     )
+    RAZORPAY_WEBHOOK_SECRET: str = Field(
+        default="",
+        description=(
+            "Razorpay Webhook Signing Secret. NEVER exposed. "
+            "Different from KEY_SECRET. Used to verify incoming webhook payloads. "
+            "Configure in Razorpay Dashboard → Webhooks."
+        ),
+    )
     RAZORPAY_BASE_URL: str = "https://api.razorpay.com/v1"
     RAZORPAY_CURRENCY: str = "INR"
 

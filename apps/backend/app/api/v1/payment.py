@@ -1,19 +1,26 @@
 """
 PrintBar Backend — Payment & Checkout API Endpoints
 
-POST /api/v1/payments/create-order   — Create Razorpay order (returns orderId + keyId)
-POST /api/v1/payments/verify         — Verify Razorpay HMAC-SHA256 signature
-GET  /api/v1/payments/{job_id}/status — Poll payment + job status
+POST /api/v1/payments/create-order           — Create payment order (provider-agnostic)
+POST /api/v1/payments/verify                 — Verify payment callback (HMAC-SHA256)
+POST /api/v1/payments/webhook/razorpay       — Razorpay webhook handler (raw body)
+POST /api/v1/payments/{job_id}/cancel        — Cancel payment (user dismissed modal)
+GET  /api/v1/payments/{job_id}/status        — Poll payment + job status + verification stage
+GET  /api/v1/payments/{job_id}/poll-order    — Poll gateway order status (QR flow)
 
-Legacy:
-POST /api/v1/checkout                — Kept for backward compat (redirects to create-order flow)
-POST /api/v1/payments/webhook        — Kept for Easebuzz legacy PENDING payments
+Security:
+    - Webhook endpoint reads raw bytes before any JSON parsing.
+    - HMAC verification happens on raw bytes using WEBHOOK_SECRET.
+    - Frontend never marks payment successful — only backend verification does.
+    - All endpoints require a valid guest session token.
+    - Webhook endpoint does NOT require a guest session (called by Razorpay server).
 """
+
 from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Header, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,51 +48,53 @@ settings = get_settings()
 
 # ─── Request / Response Schemas ───────────────────────────────────────────────
 
-class RazorpayVerifyRequest(BaseModel):
+class PaymentVerifyRequest(BaseModel):
     """
-    Payload sent by the frontend after the Razorpay modal completes.
+    Payload sent by the frontend after the payment modal completes.
 
-    The frontend receives all three IDs directly from Razorpay's
-    payment handler callback and must relay them to this endpoint
-    for server-side signature verification.
+    The frontend receives all three IDs directly from the payment gateway's
+    handler callback and relays them here for server-side signature verification.
+
+    Field names use Razorpay's naming convention for backward compatibility.
+    The frontend does not need to know these are Razorpay-specific fields.
     """
 
     razorpay_order_id: str = Field(
         ...,
-        description="Razorpay order ID (e.g. order_XXXX). Returned by create-order.",
+        description="Gateway order ID returned by create-order.",
     )
     razorpay_payment_id: str = Field(
         ...,
-        description="Razorpay payment ID (e.g. pay_XXXX). Set by Razorpay after payment.",
+        description="Gateway payment ID assigned after payment completes.",
     )
     razorpay_signature: str = Field(
         ...,
         description=(
-            "HMAC-SHA256 signature from Razorpay callback. "
+            "HMAC-SHA256 signature from gateway callback. "
             "Verified server-side with KEY_SECRET — never trusted from client."
         ),
     )
     job_id: str = Field(
         ...,
-        description="Our internal print job UUID. Links payment to the correct job.",
+        description="Internal print job UUID. Links payment to the correct job.",
     )
 
 
-# ─── Razorpay: Create Order ───────────────────────────────────────────────────
+# ─── Create Order ─────────────────────────────────────────────────────────────
 
 @router.post(
     "/payments/create-order",
     status_code=status.HTTP_201_CREATED,
-    summary="Create Razorpay payment order",
+    summary="Create payment order",
     description=(
-        "Creates a print job and a Razorpay order. "
-        "Returns the Razorpay order ID, amount in paise, currency, and the public KEY_ID. "
-        "The frontend uses these to open the Razorpay Standard Checkout modal. "
+        "Creates a print job and a payment order with the active gateway. "
+        "Returns the gateway order ID, amount in paise, currency, and the public KEY_ID. "
+        "The frontend uses these to open the payment UI. "
         "KEY_SECRET is never returned to the frontend. "
         "Requires a valid guest session token."
     ),
 )
-async def create_razorpay_order(
+async def create_payment_order(
     file_id: uuid.UUID,
     color_mode: str = "BW",
     paper_size: str = "A4",
@@ -99,23 +108,11 @@ async def create_razorpay_order(
     session_id: str = Depends(get_current_guest_session),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """
-    Creates a print job and a Razorpay payment order.
-
-    The backend:
-        1. Validates the uploaded file belongs to the session.
-        2. Recalculates price (never trusts frontend amounts).
-        3. Creates PrintJob in PAYMENT_PENDING state.
-        4. Creates Payment record.
-        5. Calls Razorpay Orders API with Basic Auth.
-        6. Returns Razorpay order details + public KEY_ID to frontend.
-
-    The frontend opens the Razorpay modal and calls /payments/verify on success.
-    """
+    """Creates a print job and payment order. Returns gateway order details."""
     service = PaymentService(db)
 
     try:
-        result = await service.create_razorpay_order(
+        result = await service.create_order(
             session_id=session_id,
             file_id=file_id,
             color_mode=color_mode.upper(),
@@ -150,6 +147,12 @@ async def create_razorpay_order(
                 },
             },
         )
+    except Exception as exc:
+        logger.exception("create_order_unexpected", error=str(exc))
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"success": False, "error": {"code": "SYS_000"}},
+        )
 
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
@@ -157,36 +160,25 @@ async def create_razorpay_order(
     )
 
 
-# ─── Razorpay: Verify Payment ─────────────────────────────────────────────────
+# ─── Verify Payment Callback ──────────────────────────────────────────────────
 
 @router.post(
     "/payments/verify",
     status_code=status.HTTP_200_OK,
-    summary="Verify Razorpay payment signature",
+    summary="Verify payment callback signature",
     description=(
-        "Verifies the Razorpay HMAC-SHA256 payment signature server-side. "
-        "Called by the frontend immediately after the Razorpay modal handler fires. "
+        "Verifies the payment gateway HMAC-SHA256 callback signature server-side. "
+        "Called by the frontend immediately after the payment modal handler fires. "
         "On success: marks payment as SUCCESS and transitions print job to QUEUED. "
         "Requires a valid guest session token."
     ),
 )
-async def verify_razorpay_payment(
-    request_body: RazorpayVerifyRequest,
+async def verify_payment(
+    request_body: PaymentVerifyRequest,
     session_id: str = Depends(get_current_guest_session),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """
-    Verifies a Razorpay payment and queues the print job.
-
-    Security:
-        - HMAC-SHA256 signature is verified server-side with KEY_SECRET.
-        - Constant-time comparison prevents timing attacks.
-        - Amount is re-validated against the stored Payment record.
-        - Duplicate verification attempts are rejected.
-        - Raw payload is stored in webhook log before any processing.
-
-    Returns 200 on success. Returns 4xx on verification failure.
-    """
+    """Verifies the payment callback and queues the print job."""
     try:
         job_uuid = uuid.UUID(request_body.job_id)
     except (ValueError, AttributeError):
@@ -201,7 +193,7 @@ async def verify_razorpay_payment(
     service = PaymentService(db)
 
     try:
-        result = await service.verify_razorpay_payment(
+        result = await service.verify_payment_callback(
             razorpay_order_id=request_body.razorpay_order_id,
             razorpay_payment_id=request_body.razorpay_payment_id,
             razorpay_signature=request_body.razorpay_signature,
@@ -230,11 +222,7 @@ async def verify_razorpay_payment(
         )
 
     except DuplicatePaymentError:
-        # Idempotent — return success for already-processed payments.
-        logger.info(
-            "verify_endpoint_duplicate_ignored",
-            job_id=request_body.job_id,
-        )
+        logger.info("verify_endpoint_duplicate_ignored", job_id=request_body.job_id)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={"success": True, "message": "Already processed."},
@@ -250,10 +238,7 @@ async def verify_razorpay_payment(
         )
 
     except PaymentAmountMismatchError:
-        logger.error(
-            "verify_endpoint_amount_mismatch",
-            job_id=request_body.job_id,
-        )
+        logger.error("verify_endpoint_amount_mismatch", job_id=request_body.job_id)
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={
@@ -273,15 +258,136 @@ async def verify_razorpay_payment(
         )
 
 
-# ─── Status Polling ───────────────────────────────────────────────────────────
+# ─── Razorpay Webhook ─────────────────────────────────────────────────────────
+
+@router.post(
+    "/payments/webhook/razorpay",
+    status_code=status.HTTP_200_OK,
+    summary="Razorpay webhook handler",
+    description=(
+        "Receives and processes Razorpay webhook events. "
+        "HMAC-SHA256 signature is verified on raw body bytes BEFORE any JSON parsing. "
+        "Idempotent — duplicate webhooks are silently ignored. "
+        "This endpoint is called by Razorpay servers — not by the frontend. "
+        "Configure this URL in Razorpay Dashboard → Webhooks."
+    ),
+    include_in_schema=False,  # Don't expose in OpenAPI docs for security.
+)
+async def razorpay_webhook(
+    request: Request,
+    x_razorpay_signature: str = Header(
+        ...,
+        alias="X-Razorpay-Signature",
+        description="HMAC-SHA256 signature of the raw request body.",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """
+    Razorpay webhook handler.
+
+    CRITICAL: Must read raw body bytes — NOT use request.json() —
+    because HMAC is computed over the exact raw bytes.
+    Parsing JSON first would invalidate the signature verification.
+    """
+    # Read raw body FIRST — before any parsing.
+    raw_body = await request.body()
+
+    if not raw_body:
+        logger.warning("webhook_empty_body")
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"success": False, "error": "Empty body"},
+        )
+
+    service = PaymentService(db)
+
+    try:
+        result = await service.process_webhook(
+            raw_body=raw_body,
+            signature_header=x_razorpay_signature,
+        )
+        # Always return 200 to Razorpay — even if we don't process (duplicate/ignored).
+        # Returning non-200 would cause Razorpay to retry endlessly.
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "data": result},
+        )
+
+    except InvalidPaymentSignatureError:
+        logger.warning(
+            "webhook_endpoint_signature_rejected",
+            body_length=len(raw_body),
+        )
+        # Return 400 for invalid signatures — these are not retried by Razorpay.
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "success": False,
+                "error": {"code": "PAY_001", "message": "Webhook signature invalid."},
+            },
+        )
+
+    except Exception as exc:
+        logger.exception("webhook_endpoint_unexpected", error=str(exc))
+        # Return 200 to prevent infinite Razorpay retries for non-signature errors.
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": False, "error": "Internal error"},
+        )
+
+
+# ─── Cancel Payment ───────────────────────────────────────────────────────────
+
+@router.post(
+    "/payments/{job_id}/cancel",
+    status_code=status.HTTP_200_OK,
+    summary="Cancel payment",
+    description=(
+        "Marks a payment as CANCELLED when the user dismisses the payment modal. "
+        "The print job remains in PAYMENT_PENDING — the user can retry. "
+        "Requires a valid guest session token."
+    ),
+)
+async def cancel_payment(
+    job_id: uuid.UUID,
+    session_id: str = Depends(get_current_guest_session),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Cancels a payment when the user dismisses the modal."""
+    service = PaymentService(db)
+
+    try:
+        await service.cancel_payment(job_id=job_id, session_id=session_id)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "message": "Payment cancelled."},
+        )
+    except JobNotFoundError:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "success": False,
+                "error": {"code": "JOB_001", "message": "Job not found."},
+            },
+        )
+    except Exception as exc:
+        logger.exception("cancel_payment_unexpected", error=str(exc))
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"success": False, "error": {"code": "SYS_000"}},
+        )
+
+
+# ─── Payment Status Polling ───────────────────────────────────────────────────
 
 @router.get(
     "/payments/{job_id}/status",
-    summary="Get payment status for a job",
+    summary="Get payment and job status",
     description=(
         "Polls the payment and job status for a print job. "
-        "Call every 3 seconds after the Razorpay modal closes "
-        "until jobStatus reaches QUEUED, PRINTING, or COMPLETED."
+        "Returns verificationStage: PENDING | VERIFYING | VERIFIED | FAILED | CANCELLED | EXPIRED. "
+        "Call every 2.5 seconds after payment modal closes until verificationStage reaches VERIFIED. "
+        "Requires a valid guest session token."
     ),
 )
 async def get_payment_status(
@@ -289,29 +395,74 @@ async def get_payment_status(
     session_id: str = Depends(get_current_guest_session),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """
-    Returns the current payment and job status for polling.
-
-    Returns:
-        paymentStatus: CREATED | PENDING | SUCCESS | FAILED | EXPIRED
-        jobStatus:     Current print job status
-    """
+    """Returns current payment status, job status, and verification stage for polling."""
     job_repo = PrintJobRepository(db)
     pay_repo = PaymentRepository(db)
+
+    from app.services.payment_service import _payment_to_verification_stage
 
     job = await job_repo.get_by_id_and_session(job_id, session_id)
     if not job:
         raise JobNotFoundError()
 
     payment = await pay_repo.get_by_print_job_id(job_id)
+    payment_status = payment.status if payment else "CREATED"
 
     return {
         "success": True,
         "data": {
             "jobId": str(job.id),
             "jobStatus": job.status,
-            "paymentStatus": payment.status if payment else "CREATED",
+            "paymentStatus": payment_status,
+            "verificationStage": _payment_to_verification_stage(
+                payment_status, job.status
+            ),
             "totalInr": str(job.total_inr),
             "paidAt": payment.paid_at if payment else None,
         },
     }
+
+
+# ─── QR Order Status Polling ──────────────────────────────────────────────────
+
+@router.get(
+    "/payments/{job_id}/poll-order",
+    summary="Poll gateway order status (QR flow)",
+    description=(
+        "Polls the payment gateway for the current order status. "
+        "Used by the QR payment flow — call every 3 seconds while showing QR. "
+        "Returns isPaid=true when the customer has completed payment. "
+        "Requires a valid guest session token."
+    ),
+)
+async def poll_order_status(
+    job_id: uuid.UUID,
+    session_id: str = Depends(get_current_guest_session),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Polls the gateway for order payment status. Used for QR flow auto-verification."""
+    service = PaymentService(db)
+
+    try:
+        result = await service.poll_order_status(
+            job_id=job_id,
+            session_id=session_id,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "data": result},
+        )
+    except JobNotFoundError:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "success": False,
+                "error": {"code": "JOB_001", "message": "Job not found."},
+            },
+        )
+    except Exception as exc:
+        logger.exception("poll_order_status_unexpected", error=str(exc))
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"success": False, "error": {"code": "SYS_000"}},
+        )

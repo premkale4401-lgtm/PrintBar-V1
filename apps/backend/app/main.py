@@ -37,6 +37,7 @@ from app.api.v1.jobs import router as jobs_router
 from app.api.v1.admin_auth import router as admin_auth_router
 from app.api.v1.admin import router as admin_router
 from app.api.v1.kiosk_ws import router as kiosk_ws_router
+from app.api.v1.dev_payment import router as dev_payment_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -67,7 +68,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     # Verify DB is reachable before accepting traffic.
-    from app.database.session import check_database_connectivity
+    import app.models  # noqa: F401
+    from app.database.base import Base
+    from app.database.session import check_database_connectivity, engine
+
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        log.warning("table_create_warning", error=str(e))
+
     db_ok = await check_database_connectivity()
     if not db_ok:
         log.error("database_not_reachable_at_startup")
@@ -141,6 +151,10 @@ def create_application() -> FastAPI:
     # Admin endpoints.
     app.include_router(admin_auth_router, prefix=settings.API_V1_PREFIX)
     app.include_router(admin_router, prefix=settings.API_V1_PREFIX)
+
+    # Development-only endpoints — NEVER mounted in production.
+    if settings.ENVIRONMENT == "development":
+        app.include_router(dev_payment_router, prefix=settings.API_V1_PREFIX)
 
     return app
 

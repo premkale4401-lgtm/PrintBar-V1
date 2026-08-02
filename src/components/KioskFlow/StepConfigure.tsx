@@ -473,19 +473,23 @@ const DocumentPreviewCard: React.FC<{
               key={p}
               type="button"
               onClick={() => setCurrentPage(p)}
-              className={`shrink-0 w-12 h-16 rounded-lg border-2 p-1 flex flex-col items-center justify-between transition-all cursor-pointer ${
+              className={`shrink-0 w-12 h-16 rounded-lg border-2 p-0.5 flex flex-col items-center justify-between transition-all cursor-pointer overflow-hidden ${
                 currentPage === p
                   ? 'border-blue-600 bg-blue-50/20 shadow-xs scale-105'
                   : 'border-slate-200 hover:border-slate-300 bg-slate-50/50'
               }`}
             >
-              <div className="w-full bg-white h-10 rounded border border-slate-100 p-0.5 space-y-0.5">
-                <div className="h-1 bg-slate-300 rounded-xs w-3/4" />
-                <div className="h-0.5 bg-slate-200 rounded-xs w-full" />
-                <div className="h-0.5 bg-slate-200 rounded-xs w-2/3" />
+              <div className="w-full flex-1 rounded overflow-hidden flex items-center justify-center">
+                <PagePreviewCell
+                  file={file}
+                  pageNum={p}
+                  totalPageCount={pageCount}
+                  colorMode={colorMode}
+                  isCompact={true}
+                />
               </div>
-              <span className={`text-[10px] font-semibold ${currentPage === p ? 'text-blue-600' : 'text-slate-500'}`}>
-                p.{p}
+              <span className={`text-[9px] font-semibold mt-0.5 ${currentPage === p ? 'text-blue-600' : 'text-slate-500'}`}>
+                {p}
               </span>
             </button>
           ))}
@@ -543,9 +547,11 @@ export const StepConfigure: React.FC<StepConfigureProps> = ({
   const navigate = useNavigate();
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [isSpecificPageModalOpen, setIsSpecificPageModalOpen] = useState(false);
+  const [activeFileIndex, setActiveFileIndex] = useState(0);
   
   const file = config.file;
   const filesList = (config.files && config.files.length > 0) ? config.files : (file ? [file] : []);
+  const activeFile = filesList[activeFileIndex] || filesList[0] || file;
   const pageCount = filesList.length > 0 ? filesList.reduce((acc, f) => acc + f.pageCount, 0) : 12;
   const fileName = filesList.length > 1 ? `${filesList.length} Files (${filesList[0].name} +${filesList.length - 1} more)` : (file ? file.name : 'proposal_v2.pdf');
   const fileSizeMB = filesList.length > 0 ? (filesList.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024)).toFixed(1) : '2.4';
@@ -665,9 +671,24 @@ export const StepConfigure: React.FC<StepConfigureProps> = ({
     if (onRemoveFile) {
       onRemoveFile();
     } else {
-      onChangeConfig({ ...config, file: null });
+      onChangeConfig({ ...config, file: null, files: [] });
     }
     onBack();
+  };
+
+  const handleRemoveActiveFile = () => {
+    if (filesList.length <= 1) {
+      handleRemoveFileAndGoUpload();
+    } else {
+      const updatedFiles = filesList.filter((_, i) => i !== activeFileIndex);
+      const newActiveIdx = Math.max(0, activeFileIndex - 1);
+      setActiveFileIndex(newActiveIdx);
+      onChangeConfig({
+        ...config,
+        file: updatedFiles[0],
+        files: updatedFiles,
+      });
+    }
   };
 
   // ── Pricing (backend-driven, never local) ────────────────────────────────────
@@ -677,13 +698,116 @@ export const StepConfigure: React.FC<StepConfigureProps> = ({
   return (
     <div className="space-y-6 max-w-3xl mx-auto pb-28">
       
+      {/* Premium Multi-File Document Manager */}
+      {filesList.length > 0 && (
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                <FileText className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-extrabold text-slate-900 font-['Outfit']">
+                    Uploaded Documents
+                  </h3>
+                  <span className="text-[11px] font-bold bg-blue-100/70 text-blue-700 px-2.5 py-0.5 rounded-full">
+                    {filesList.length} {filesList.length === 1 ? 'file' : 'files'} • {pageCount} {pageCount === 1 ? 'page' : 'pages'} total
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 font-normal mt-0.5">
+                  Select a document to preview and adjust settings
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#0067ff] hover:text-blue-700 bg-blue-50/80 hover:bg-blue-100 border border-blue-200/60 px-4 py-2 rounded-xl transition-all cursor-pointer shadow-2xs active:scale-95 shrink-0"
+            >
+              <span>+ Add / Manage Files</span>
+            </button>
+          </div>
+
+          {/* Document Tabs Container — Never collapses, smoothly scrolls */}
+          <div className="flex items-center gap-3 overflow-x-auto pt-1 pb-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+            {filesList.map((f, idx) => {
+              const isSelected = activeFileIndex === idx;
+              const ext = f.name.includes('.') ? f.name.split('.').pop()?.toUpperCase() || 'PDF' : 'PDF';
+
+              const handleRemoveThisFile = (e: React.MouseEvent) => {
+                e.stopPropagation();
+                if (filesList.length <= 1) {
+                  handleRemoveFileAndGoUpload();
+                } else {
+                  const updatedFiles = filesList.filter((_, i) => i !== idx);
+                  const newIdx = idx >= updatedFiles.length ? updatedFiles.length - 1 : idx;
+                  setActiveFileIndex(newIdx);
+                  onChangeConfig({
+                    ...config,
+                    file: updatedFiles[0],
+                    files: updatedFiles,
+                  });
+                }
+              };
+
+              return (
+                <div
+                  key={f.id || idx}
+                  onClick={() => setActiveFileIndex(idx)}
+                  className={`group relative flex items-center justify-between gap-3 px-4 py-3 rounded-2xl text-xs font-bold transition-all cursor-pointer border min-w-[210px] max-w-[280px] shrink-0 select-none ${
+                    isSelected
+                      ? 'bg-gradient-to-r from-blue-600 to-[#0067ff] text-white border-transparent shadow-md shadow-blue-500/25 scale-[1.02]'
+                      : 'bg-slate-50/90 border-slate-200/80 text-slate-700 hover:bg-slate-100/90 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider shrink-0 ${
+                      isSelected ? 'bg-white/20 text-white' : 'bg-slate-200/80 text-slate-600'
+                    }`}>
+                      {ext}
+                    </span>
+                    <span className="truncate font-bold leading-tight" title={f.name}>
+                      {f.name}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                      isSelected ? 'bg-white/25 text-white' : 'bg-slate-200/70 text-slate-600'
+                    }`}>
+                      {f.pageCount}p
+                    </span>
+
+                    {/* Delete X button directly on tab */}
+                    <button
+                      type="button"
+                      onClick={handleRemoveThisFile}
+                      className={`w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
+                        isSelected
+                          ? 'hover:bg-white/30 text-white/90 hover:text-white'
+                          : 'hover:bg-red-100 text-slate-400 hover:text-red-600'
+                      }`}
+                      title="Remove this document"
+                    >
+                      <X className="w-3 h-3 stroke-[2.5]" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Interactive Document File Preview */}
       <DocumentPreviewCard 
-        file={file} 
+        file={activeFile} 
         colorMode={config.colorMode} 
         pagesPerSheet={config.pagesPerSheet} 
         orientation={config.orientation}
-        onRemoveFile={handleRemoveFileAndGoUpload}
+        onRemoveFile={handleRemoveActiveFile}
       />
 
       {/* Configuration Options Card */}
@@ -1027,7 +1151,7 @@ export const StepConfigure: React.FC<StepConfigureProps> = ({
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
           <div>
             <span className="block text-slate-500 font-medium text-xs sm:text-sm">
-              Total {selectedPageCount} {selectedPageCount === 1 ? 'page' : 'pages'}
+              {selectedPageCount} {selectedPageCount === 1 ? 'page' : 'pages'} × {config.copies} {config.copies === 1 ? 'copy' : 'copies'} — {config.colorMode === 'bw' ? '₹2/page' : '₹10/page'}
             </span>
             {isPriceLoading ? (
               <span className="flex items-center gap-1.5 mt-0.5">
@@ -1036,9 +1160,9 @@ export const StepConfigure: React.FC<StepConfigureProps> = ({
               </span>
             ) : backendPrice ? (
               <span className="block text-slate-900 font-black text-xl sm:text-2xl leading-none mt-0.5">
-                ₹{Number(backendPrice.totalInr).toFixed(2)}
+                ₹{Number(backendPrice.totalInr).toFixed(0)}
                 <span className="ml-2 text-xs font-medium text-slate-400">
-                  (incl. {backendPrice.gstPercent}% GST)
+                  All-inclusive
                 </span>
               </span>
             ) : (
@@ -1047,6 +1171,7 @@ export const StepConfigure: React.FC<StepConfigureProps> = ({
               </span>
             )}
           </div>
+
 
           <button
             type="button"

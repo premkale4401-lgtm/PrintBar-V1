@@ -22,13 +22,14 @@ interface StepPrintingProps {
 
 // Maps backend job status to which checklist steps are "done".
 const STATUS_STEP_MAP: Record<string, number> = {
-  QUEUED: 0,
-  ASSIGNED: 1,
-  DOWNLOADING: 2,
-  PRINTING: 3,
-  COMPLETED: 4,
-  FAILED: 4,
-  CANCELLED: 4,
+  QUEUED: 1,
+  ASSIGNED: 2,
+  DOWNLOADING: 3,
+  READY_TO_PRINT: 3,
+  PRINTING: 4,
+  COMPLETED: 5,
+  FAILED: 5,
+  CANCELLED: 5,
 };
 
 export const StepPrinting: React.FC<StepPrintingProps> = ({

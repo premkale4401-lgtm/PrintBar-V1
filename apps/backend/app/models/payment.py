@@ -23,7 +23,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.constants import (
-    PAYMENT_GATEWAY_EASEBUZZ,
+    PAYMENT_GATEWAY_RAZORPAY,
     PAYMENT_STATUS_CREATED,
     PAYMENT_STATUS_EXPIRED,
     PAYMENT_STATUS_FAILED,
@@ -31,6 +31,8 @@ from app.core.constants import (
     PAYMENT_STATUS_PROCESSING,
     PAYMENT_STATUS_REFUNDED,
     PAYMENT_STATUS_SUCCESS,
+    PAYMENT_STATUS_CANCELLED,
+    PAYMENT_STATUS_VERIFYING,
     DEFAULT_CURRENCY,
 )
 from app.database.base import PrintBarBase
@@ -74,7 +76,7 @@ class Payment(PrintBarBase):
         index=True,
     )
     gateway: Mapped[str] = mapped_column(
-        String(64), nullable=False, default=PAYMENT_GATEWAY_EASEBUZZ
+        String(64), nullable=False, default=PAYMENT_GATEWAY_RAZORPAY
     )
     gateway_order_id: Mapped[str | None] = mapped_column(
         String(256), nullable=True, unique=True, index=True
@@ -82,15 +84,23 @@ class Payment(PrintBarBase):
     gateway_txn_id: Mapped[str | None] = mapped_column(
         String(256), nullable=True, unique=True
     )
+    gateway_signature: Mapped[str | None] = mapped_column(
+        String(512), nullable=True  # Stored truncated — never full signature.
+    )
+    verification_time: Mapped[str | None] = mapped_column(
+        String(50), nullable=True  # ISO timestamp of backend verification.
+    )
     status: Mapped[str] = mapped_column(
         Enum(
             PAYMENT_STATUS_CREATED,
             PAYMENT_STATUS_PENDING,
+            PAYMENT_STATUS_VERIFYING,
             PAYMENT_STATUS_PROCESSING,
             PAYMENT_STATUS_SUCCESS,
             PAYMENT_STATUS_FAILED,
             PAYMENT_STATUS_EXPIRED,
             PAYMENT_STATUS_REFUNDED,
+            PAYMENT_STATUS_CANCELLED,
             name="payment_status_enum",
         ),
         nullable=False,

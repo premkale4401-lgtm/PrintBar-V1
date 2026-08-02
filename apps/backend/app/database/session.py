@@ -42,6 +42,11 @@ def _create_engine() -> AsyncEngine:
     Returns:
         Configured AsyncEngine instance.
     """
+    if "sqlite" in _settings.DATABASE_URL:
+        return create_async_engine(
+            _settings.DATABASE_URL,
+            echo=_settings.DATABASE_ECHO,
+        )
     return create_async_engine(
         _settings.DATABASE_URL,
         echo=_settings.DATABASE_ECHO,

@@ -129,6 +129,15 @@ class PrintJobRepository:
         )
         return list(result.scalars().all())
 
+    async def get_active_uncompleted_jobs(self) -> list[PrintJob]:
+        """Returns all jobs in active non-terminal statuses."""
+        result = await self._db.execute(
+            select(PrintJob)
+            .where(PrintJob.status.in_(["QUEUED", "ASSIGNED", "DOWNLOADING", "READY_TO_PRINT", "PRINTING"]))
+            .order_by(PrintJob.created_at.asc())
+        )
+        return list(result.scalars().all())
+
     async def transition(
         self, job_id: uuid.UUID, to_status: str, **extra_fields: object
     ) -> PrintJob:

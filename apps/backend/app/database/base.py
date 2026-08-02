@@ -12,8 +12,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, func, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import DateTime, Uuid, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -42,10 +41,9 @@ class UUIDMixin:
     """
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
-        server_default=text("gen_random_uuid()"),
         index=True,
     )
 

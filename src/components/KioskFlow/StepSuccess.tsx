@@ -19,7 +19,13 @@ export const StepSuccess: React.FC<StepSuccessProps> = ({
   onGoHome,
 }) => {
   const file = config.file;
-  const pageCount = file ? file.pageCount : 12;
+  const filesList = (config.files && config.files.length > 0) ? config.files : (file ? [file] : []);
+  const pageCount = filesList.length > 0 ? filesList.reduce((acc, f) => acc + f.pageCount, 0) : 12;
+  
+  // Calculate total amount in INR (₹2/page for B/W, ₹10/page for Color, multiplied by copies)
+  const ratePerPage = config.colorMode === 'color' ? 10 : 2;
+  const totalAmountInr = (pageCount * ratePerPage * (config.copies || 1)).toFixed(2);
+  const randomJobId = `PF-${Math.floor(1000 + Math.random() * 9000)}-${Math.floor(10 + Math.random() * 90)}`;
 
   return (
     <div className="space-y-6 max-w-lg mx-auto text-center pb-12 pt-4">
@@ -43,7 +49,7 @@ export const StepSuccess: React.FC<StepSuccessProps> = ({
       <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs space-y-4 text-left">
         <div className="flex items-center justify-between text-sm">
           <span className="text-slate-500 font-medium">Job ID</span>
-          <span className="font-bold text-slate-900 font-mono">PF-8829-10</span>
+          <span className="font-bold text-slate-900 font-mono">{randomJobId}</span>
         </div>
 
         <div className="border-t border-slate-100 pt-4 flex items-center justify-between text-sm">
@@ -53,7 +59,7 @@ export const StepSuccess: React.FC<StepSuccessProps> = ({
 
         <div className="border-t border-slate-100 pt-4 flex items-center justify-between text-sm">
           <span className="text-slate-500 font-medium">Amount Paid</span>
-          <span className="font-bold text-blue-600">$1.44</span>
+          <span className="font-bold text-[#0067ff]">₹{totalAmountInr}</span>
         </div>
       </div>
 

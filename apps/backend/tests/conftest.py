@@ -23,11 +23,9 @@ from app.main import app
 
 import os
 
-# ─── Test Database ─────────────────────────────────────────────────────────────
-# Use PostgreSQL for tests (full support for UUIDs, ENUMs, gen_random_uuid()).
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://printbar:printbar_dev_password@postgres:5432/printbar_dev",
+    "sqlite+aiosqlite:///printbar.db",
 )
 
 _test_engine = create_async_engine(

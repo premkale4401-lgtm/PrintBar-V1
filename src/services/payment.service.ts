@@ -1,13 +1,21 @@
 /**
- * PrintBar — Payment Service
+ * PrintBar — Payment Service (Provider-Agnostic)
  *
- * POST /api/v1/payments/create-order → create Razorpay order (returns orderId + public keyId)
- * POST /api/v1/payments/verify       → verify Razorpay HMAC-SHA256 signature
- * GET  /api/v1/payments/{id}/status  → poll payment + job status
- * GET  /api/v1/jobs/{id}             → get full job details
+ * All API calls for payments go through this service.
+ * The frontend does NOT know which payment gateway is being used.
+ * Fields like razorpay_order_id are treated as opaque gateway tokens.
+ *
+ * Endpoints:
+ *   POST /api/v1/payments/create-order    → create order (returns gateway details)
+ *   POST /api/v1/payments/verify          → verify callback signature
+ *   POST /api/v1/payments/{id}/cancel     → cancel payment
+ *   GET  /api/v1/payments/{id}/status     → poll status + verification stage
+ *   GET  /api/v1/payments/{id}/poll-order → poll gateway order (QR flow)
  */
 
 import { apiFetch } from '../lib/api';
+
+// ─── Request Params ──────────────────────────────────────────────────────────
 
 export interface CheckoutParams {
   fileId: string;
@@ -22,6 +30,15 @@ export interface CheckoutParams {
   idempotencyKey?: string;
 }
 
+export interface PaymentVerifyParams {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+  job_id: string;
+}
+
+// ─── Response Types ───────────────────────────────────────────────────────────
+
 export interface CheckoutResult {
   jobId: string;
   paymentId: string;
@@ -31,36 +48,53 @@ export interface CheckoutResult {
   status: string;
 }
 
-export interface RazorpayOrderResult {
+export interface OrderResult {
+  /** Our internal print job UUID. */
   jobId: string;
   paymentId: string;
+  /** Gateway order ID — treated as an opaque token by the frontend. */
+  gatewayOrderId: string;
+  /** Backward compat alias. Same as gatewayOrderId. */
   razorpayOrderId: string;
+  /** Amount in smallest currency unit (paise for INR). */
   amountPaise: number;
   currency: string;
+  /** Public gateway key — safe for frontend modal initialization. */
   keyId: string;
   totalInr: string;
-  breakdown?: Record<string, any>;
+  breakdown?: Record<string, unknown>;
   idempotent?: boolean;
 }
 
-export interface RazorpayVerifyParams {
-  razorpay_order_id: string;
-  razorpay_payment_id: string;
-  razorpay_signature: string;
-  job_id: string;
-}
-
-export interface RazorpayVerifyResult {
+export interface PaymentVerifyResult {
   jobId: string;
   status: string;
 }
 
-export interface PaymentStatus {
+/** Verification stage returned by the polling endpoint. */
+export type VerificationStage =
+  | 'PENDING'
+  | 'VERIFYING'
+  | 'VERIFIED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'EXPIRED';
+
+export interface PaymentStatusResult {
   jobId: string;
   jobStatus: string;
   paymentStatus: string;
+  verificationStage: VerificationStage;
   totalInr: string;
   paidAt: string | null;
+}
+
+export interface OrderPollResult {
+  isPaid: boolean;
+  verificationStage: VerificationStage;
+  jobId?: string;
+  jobStatus?: string;
+  gatewayError?: boolean;
 }
 
 export interface JobDetails {
@@ -81,12 +115,15 @@ export interface JobDetails {
   createdAt: string | null;
 }
 
+// ─── Service ─────────────────────────────────────────────────────────────────
+
 export const paymentService = {
   /**
-   * Creates a Razorpay order and print job.
-   * Returns orderId, amount in paise, currency, and the public KEY_ID.
+   * Creates a payment order with the backend.
+   * Returns gateway order details for the payment UI.
+   * The frontend does not know which gateway is being used.
    */
-  async createRazorpayOrder(params: CheckoutParams): Promise<RazorpayOrderResult> {
+  async createOrder(params: CheckoutParams): Promise<OrderResult> {
     const searchParams = new URLSearchParams({
       file_id: params.fileId,
       color_mode: params.colorMode,
@@ -105,17 +142,32 @@ export const paymentService = {
       searchParams.append('idempotency_key', params.idempotencyKey);
     }
 
-    return apiFetch<RazorpayOrderResult>({
+    return apiFetch<OrderResult>({
       method: 'POST',
       url: `/payments/create-order?${searchParams.toString()}`,
     });
   },
 
   /**
-   * Verifies Razorpay payment signature server-side.
+   * Backward-compat alias — maps to createOrder.
    */
-  async verifyRazorpayPayment(data: RazorpayVerifyParams): Promise<RazorpayVerifyResult> {
-    return apiFetch<RazorpayVerifyResult>({
+  async createRazorpayOrder(params: CheckoutParams): Promise<OrderResult> {
+    return this.createOrder(params);
+  },
+
+  /**
+   * Backward-compat alias — maps to createOrder.
+   */
+  async initiateCheckout(params: CheckoutParams): Promise<OrderResult> {
+    return this.createOrder(params);
+  },
+
+  /**
+   * Verifies the payment gateway callback signature server-side.
+   * Called after the payment modal handler fires.
+   */
+  async verifyPayment(data: PaymentVerifyParams): Promise<PaymentVerifyResult> {
+    return apiFetch<PaymentVerifyResult>({
       method: 'POST',
       url: '/payments/verify',
       data,
@@ -123,19 +175,44 @@ export const paymentService = {
   },
 
   /**
-   * Backward-compatible helper method mapping to createRazorpayOrder.
+   * Backward-compat alias — maps to verifyPayment.
    */
-  async initiateCheckout(params: CheckoutParams): Promise<any> {
-    return this.createRazorpayOrder(params);
+  async verifyRazorpayPayment(data: PaymentVerifyParams): Promise<PaymentVerifyResult> {
+    return this.verifyPayment(data);
   },
 
   /**
-   * Polls payment and job status.
+   * Cancels a payment when the user dismisses the payment modal.
+   * Marks payment as CANCELLED in the backend — job remains retryable.
    */
-  async getPaymentStatus(jobId: string): Promise<PaymentStatus> {
-    return apiFetch<PaymentStatus>({
+  async cancelPayment(jobId: string): Promise<void> {
+    await apiFetch<{ message: string }>({
+      method: 'POST',
+      url: `/payments/${jobId}/cancel`,
+    });
+  },
+
+  /**
+   * Polls payment + job status + verification stage.
+   * Call every 2.5 seconds after payment modal closes.
+   * Stop polling when verificationStage reaches VERIFIED, FAILED, or CANCELLED.
+   */
+  async getPaymentStatus(jobId: string): Promise<PaymentStatusResult> {
+    return apiFetch<PaymentStatusResult>({
       method: 'GET',
       url: `/payments/${jobId}/status`,
+    });
+  },
+
+  /**
+   * Polls the gateway for the current order payment status.
+   * Used by the QR payment flow — call every 3 seconds while showing QR.
+   * Returns isPaid=true when the customer has completed payment.
+   */
+  async pollOrderStatus(jobId: string): Promise<OrderPollResult> {
+    return apiFetch<OrderPollResult>({
+      method: 'GET',
+      url: `/payments/${jobId}/poll-order`,
     });
   },
 
@@ -148,4 +225,24 @@ export const paymentService = {
       url: `/jobs/${jobId}`,
     });
   },
+
+  /**
+   * DEV ONLY — Bypasses payment gateway and marks payment SUCCESS immediately.
+   * Only works when backend ENVIRONMENT=development.
+   * Returns 403 in staging/production — safe to call without env checks on frontend.
+   */
+  async devCompletePayment(jobId: string): Promise<{ jobId: string; status: string }> {
+    return apiFetch<{ jobId: string; status: string }>({
+      method: 'POST',
+      url: `/payments/dev/complete?job_id=${jobId}`,
+    });
+  },
 };
+
+// ─── Backward-Compat Type Aliases ─────────────────────────────────────────────
+/** @deprecated Use PaymentStatusResult instead. */
+export type PaymentStatus = PaymentStatusResult;
+/** @deprecated Use OrderResult instead. */
+export type RazorpayOrderResult = OrderResult;
+/** @deprecated Use PaymentVerifyParams instead. */
+export type RazorpayVerifyParams = PaymentVerifyParams;

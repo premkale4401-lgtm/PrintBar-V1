@@ -71,7 +71,7 @@ class UploadService:
             CorruptedPDFError:           PDF pages unreadable.
             StorageError:                Supabase Storage write failed.
         """
-        # Step 1–10: PDF validation.
+        # Step 1–10: File validation (PDF, JPG, PNG supported).
         page_count = pdf_validator.validate(filename, content_type, file_bytes)
 
         # Compute SHA-256 for integrity verification at download time.
@@ -82,12 +82,18 @@ class UploadService:
         object_path = storage_service.build_object_path(session_id, file_id)
         bucket = settings.STORAGE_BUCKET_PRINT_FILES
 
+        # Determine the correct content type for storage.
+        # Use the declared content_type for images, fallback to application/pdf.
+        base_mime = content_type.split(";")[0].strip().lower()
+        _supported_mimes = {"image/jpeg", "image/jpg", "image/png", "application/pdf"}
+        safe_content_type = base_mime if base_mime in _supported_mimes else "application/pdf"
+
         # Upload to Supabase Storage.
         storage_path = await storage_service.upload_file(
             bucket=bucket,
             object_path=object_path,
             file_data=file_bytes,
-            content_type="application/pdf",
+            content_type=safe_content_type,
         )
 
         # Persist metadata in the database.

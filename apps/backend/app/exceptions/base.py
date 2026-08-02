@@ -74,7 +74,7 @@ class UploadError(PrintBarError):
 
 class UnsupportedFileTypeError(UploadError):
     def __init__(self) -> None:
-        super().__init__("Only PDF files are supported.", "UPLOAD_001")
+        super().__init__("Unsupported file type. Please upload a PDF, JPG, or PNG file.", "UPLOAD_001")
 
 
 class FileTooLargeError(UploadError):

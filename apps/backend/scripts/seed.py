@@ -39,17 +39,17 @@ logger = get_logger(__name__)
 
 
 INITIAL_PRICING = {
-    "name": "Default Pricing — August 2026",
-    "bw_price_inr": "3.00",
+    "name": "PrintBar Flat Pricing (Rs.2 BW / Rs.10 Color, 0% GST)",
+    "bw_price_inr": "2.00",
     "color_price_inr": "10.00",
     "a3_multiplier": "1.75",
     "legal_multiplier": "1.25",
     "duplex_discount": "0.00",
-    "gst_percent": "18.00",
+    "gst_percent": "0.00",   # Prices are already all-inclusive (no separate GST)
     "is_active": True,
     "valid_from": datetime.now(tz=UTC).isoformat(),
     "valid_until": None,
-    "notes": "Initial seed pricing. Adjust via admin dashboard.",
+    "notes": "Final prices: Rs.2/page BW, Rs.10/page Color. GST set to 0 as prices are all-inclusive.",
 }
 
 

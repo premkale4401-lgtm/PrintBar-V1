@@ -79,13 +79,13 @@ class TestPDFValidatorStep1Extension:
 
 
 class TestPDFValidatorStep2MimeType:
-    """Step 2: MIME type must be application/pdf."""
+    """Step 2: MIME type must be a supported type."""
 
     def test_wrong_mime_raises(self) -> None:
         validator = PDFValidator()
         pdf = _make_minimal_pdf()
         with pytest.raises(UnsupportedFileTypeError):
-            validator.validate("doc.pdf", "image/jpeg", pdf)
+            validator.validate("doc.pdf", "application/x-invalid-mime", pdf)
 
     def test_text_mime_raises(self) -> None:
         validator = PDFValidator()
@@ -173,7 +173,7 @@ async def test_upload_endpoint_rejects_wrong_mime(async_client) -> None:
     response = await async_client.post(
         "/api/v1/uploads",
         headers={"Authorization": f"Bearer {token}"},
-        files={"file": ("doc.pdf", b"%PDF-garbage", "image/jpeg")},
+        files={"file": ("doc.pdf", b"%PDF-garbage", "application/x-invalid-mime")},
     )
     assert response.status_code == 422
     body = response.json()
