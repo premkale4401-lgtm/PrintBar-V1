@@ -1,0 +1,21 @@
+﻿# PrintBar Kiosk Agent Configuration
+# Copy this file to config/kiosk.yaml and fill in your values.
+# All values can be overridden by environment variables.
+
+# Kiosk identity (provided by admin after registration via POST /api/v1/kiosks/register)
+kiosk_id: "YOUR_KIOSK_UUID_HERE"
+api_key: "YOUR_API_KEY_HERE"
+name: "Main Campus Kiosk"
+
+# Backend connection
+backend_url: "https://printbar.yourdomain.com"
+
+# CUPS printer name (run: lpstat -p to list available printers)
+cups_printer_name: "Brother_HL-L2321D"
+
+# Heartbeat interval in seconds (default 30)
+heartbeat_interval_sec: 30
+
+# File storage
+temp_dir: "/tmp/printbar"
+log_dir: "/var/log/printbar"

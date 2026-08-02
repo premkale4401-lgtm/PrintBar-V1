@@ -1,0 +1,28 @@
+﻿name: Build Docker Images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-backend:
+    name: Build Backend Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backend image
+        run: |
+          docker build -t printbar-backend:${{ github.sha }} apps/backend/
+        continue-on-error: false
+
+  build-kiosk:
+    name: Build Kiosk Agent Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build kiosk image
+        run: |
+          docker build -t printbar-kiosk:${{ github.sha }} apps/kiosk/
+        continue-on-error: false

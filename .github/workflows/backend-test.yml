@@ -1,0 +1,59 @@
+﻿name: Backend Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "apps/backend/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/backend/**"
+
+jobs:
+  test:
+    name: Backend Test Suite
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: apps/backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install uv
+          uv sync --frozen
+
+      - name: Create test .env
+        run: |
+          cat > .env << EOF
+          ENVIRONMENT=testing
+          PAYMENT_PROVIDER=mock
+          DATABASE_URL=sqlite+aiosqlite:///printbar.db
+          SUPABASE_URL=https://test.supabase.co
+          SUPABASE_ANON_KEY=test_anon_key
+          SUPABASE_SERVICE_ROLE_KEY=test_service_key
+          JWT_SECRET_KEY=ci_test_secret_key_do_not_use_in_production
+          REDIS_URL=redis://localhost:6379/0
+          EOF
+
+      - name: Run tests
+        run: |
+          .venv/Scripts/python -m pytest tests/ -q --tb=short --cov=app --cov-report=term-missing --cov-fail-under=60
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: success()
+        with:
+          fail_ci_if_error: false

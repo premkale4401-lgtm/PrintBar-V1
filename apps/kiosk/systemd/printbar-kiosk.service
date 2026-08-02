@@ -1,0 +1,30 @@
+﻿[Unit]
+Description=PrintBar Kiosk Agent
+Documentation=https://github.com/printbar/PrintBar-V1
+After=network-online.target cups.service
+Wants=network-online.target
+Requires=cups.service
+
+[Service]
+Type=simple
+User=printbar
+Group=printbar
+WorkingDirectory=/opt/printbar-kiosk
+ExecStart=/opt/printbar-kiosk/.venv/bin/python -m app
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=printbar-kiosk
+
+# Environment — override with /etc/printbar/kiosk.env
+EnvironmentFile=-/etc/printbar/kiosk.env
+
+# Security
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/tmp/printbar /var/log/printbar
+
+[Install]
+WantedBy=multi-user.target
