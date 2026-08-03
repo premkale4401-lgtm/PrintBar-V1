@@ -27,14 +27,32 @@ function getDynamicProtocol(): string {
   return 'http:';
 }
 
+function getViteApiUrl(): string | undefined {
+  const url = import.meta.env.VITE_API_URL as string | undefined;
+  // Ignore hardcoded localhost in .env if the browser is NOT on localhost
+  if (url && (url.includes('localhost') || url.includes('127.0.0.1')) && getDynamicBackendHost() !== 'localhost' && getDynamicBackendHost() !== '127.0.0.1') {
+    return undefined;
+  }
+  return url;
+}
+
+function getViteWsUrl(): string | undefined {
+  const url = import.meta.env.VITE_WS_URL as string | undefined;
+  // Ignore hardcoded localhost in .env if the browser is NOT on localhost
+  if (url && (url.includes('localhost') || url.includes('127.0.0.1')) && getDynamicBackendHost() !== 'localhost' && getDynamicBackendHost() !== '127.0.0.1') {
+    return undefined;
+  }
+  return url;
+}
+
 /** Base URL of the FastAPI backend, e.g. http://localhost:8000 or http://10.107.16.76:8000 */
 export const API_URL: string =
-  (import.meta.env.VITE_API_URL as string | undefined) ??
+  getViteApiUrl() ??
   `${getDynamicProtocol()}//${getDynamicBackendHost()}:8000`;
 
 /** Base WebSocket URL of the FastAPI backend, e.g. ws://localhost:8000 or ws://10.107.16.76:8000 */
 export const WS_URL: string =
-  (import.meta.env.VITE_WS_URL as string | undefined) ??
+  getViteWsUrl() ??
   `${getDynamicProtocol() === 'https:' ? 'wss:' : 'ws:'}//${getDynamicBackendHost()}:8000`;
 
 /** Supabase project URL (for storage signed URLs only — no direct DB access) */

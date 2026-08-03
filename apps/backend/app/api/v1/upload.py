@@ -34,6 +34,11 @@ settings = get_settings()
 _MAX_UPLOAD_BYTES = settings.max_file_size_bytes
 
 
+def get_upload_limit() -> str:
+    if settings.is_development:
+        return "1000/minute"
+    return f"{settings.RATE_LIMIT_UPLOAD_PER_10_MINUTES}/10minutes"
+
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
@@ -45,7 +50,7 @@ _MAX_UPLOAD_BYTES = settings.max_file_size_bytes
         "Requires a valid guest session token."
     ),
 )
-@limiter.limit("5/10minutes")
+@limiter.limit(get_upload_limit)
 async def upload_file(
     request: Request,
     file: UploadFile = File(..., description="PDF file to upload"),
