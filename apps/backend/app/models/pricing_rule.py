@@ -13,17 +13,9 @@ Admin actions on pricing are logged in audit_logs.
 
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Enum, Numeric, String, Text
+from sqlalchemy import Boolean, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.constants import (
-    COLOR_MODE_BW,
-    COLOR_MODE_COLOR,
-    PAPER_SIZE_A3,
-    PAPER_SIZE_A4,
-    PAPER_SIZE_LEGAL,
-    PAPER_SIZE_LETTER,
-)
 from app.database.base import PrintBarBase
 
 

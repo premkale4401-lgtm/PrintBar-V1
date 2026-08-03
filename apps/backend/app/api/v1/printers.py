@@ -225,8 +225,8 @@ async def trigger_test_print(
 
     The kiosk must be ONLINE and connected to receive the command.
     """
-    from app.websocket.manager import ws_manager
     from app.repositories.kiosk_repository import KioskRepository
+    from app.websocket.manager import ws_manager
 
     repo = KioskRepository(db)
     kiosk = await repo.get_by_id(kiosk_id)

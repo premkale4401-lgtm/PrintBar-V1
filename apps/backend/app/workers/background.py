@@ -14,14 +14,15 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
-import structlog
-
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.database.session import AsyncSessionFactory
 
 logger = get_logger(__name__)
 settings = get_settings()
+
+from typing import Any
+_active_workers: list[asyncio.Task[Any]] = []
 
 
 async def run_cleanup_worker() -> None:
@@ -44,10 +45,23 @@ async def run_cleanup_worker() -> None:
 
                     for file in expired:
                         if file.storage_path:
-                            await storage_service.delete_file(
-                                bucket=file.storage_bucket,
-                                object_path=file.storage_path,
-                            )
+                            success = False
+                            for attempt in range(3):
+                                try:
+                                    await storage_service.delete_file(
+                                        bucket=file.storage_bucket,
+                                        object_path=file.storage_path,
+                                    )
+                                    success = True
+                                    break
+                                except Exception as e:
+                                    logger.warning("cleanup_worker_delete_retry", file_id=str(file.id), attempt=attempt, error=str(e))
+                                    await asyncio.sleep(2 ** attempt)
+                            
+                            if not success:
+                                logger.error("cleanup_worker_delete_failed", file_id=str(file.id))
+                                continue
+
                         await repo.mark_deleted(file.id)
 
                     if expired:
@@ -72,8 +86,8 @@ async def run_heartbeat_monitor() -> None:
             async with AsyncSessionFactory() as db:
                 async with db.begin():
                     from sqlalchemy import select, update
+
                     from app.models.kiosk import Kiosk
-                    from app.websocket.manager import ws_manager
 
                     now = datetime.now(tz=UTC).isoformat()
                     threshold_seconds = settings.WS_KIOSK_OFFLINE_THRESHOLD_SECONDS
@@ -130,6 +144,7 @@ async def run_payment_expiry_worker() -> None:
             async with AsyncSessionFactory() as db:
                 async with db.begin():
                     from sqlalchemy import select, update
+
                     from app.models.payment import Payment
                     from app.repositories.print_job_repository import PrintJobRepository
 
@@ -191,6 +206,25 @@ async def run_job_dispatch_worker() -> None:
         await asyncio.sleep(30)
 
 
+async def run_workflow_recovery_worker() -> None:
+    """
+    Recovers stuck jobs due to timeouts.
+    Runs every 1 minute.
+    """
+    logger.info("workflow_recovery_worker_started")
+    while True:
+        try:
+            from app.services.recovery_service import WorkflowRecoveryService
+            async with AsyncSessionFactory() as db:
+                service = WorkflowRecoveryService(db)
+                recovered = await service.recover_stuck_jobs()
+                if recovered > 0:
+                    logger.info("workflow_recovery_processed", count=recovered)
+        except Exception as exc:
+            logger.exception("workflow_recovery_worker_error", error=str(exc))
+        await asyncio.sleep(60)
+
+
 async def run_simulated_kiosk_worker() -> None:
     """
     Development & Testing Worker:
@@ -250,8 +284,10 @@ async def run_simulated_kiosk_worker() -> None:
 
                         if current_st == "PRINTING":
                             async with AsyncSessionFactory() as db:
-                                from app.repositories.uploaded_file_repository import UploadedFileRepository
                                 from app.repositories.print_job_repository import PrintJobRepository
+                                from app.repositories.uploaded_file_repository import (
+                                    UploadedFileRepository,
+                                )
                                 from app.storage.service import storage_service
 
                                 jr = PrintJobRepository(db)
@@ -283,13 +319,36 @@ async def start_all_workers() -> None:
 
     Called from the FastAPI lifespan context manager.
     """
-    asyncio.create_task(run_cleanup_worker(), name="cleanup_worker")
-    asyncio.create_task(run_heartbeat_monitor(), name="heartbeat_monitor")
-    asyncio.create_task(run_payment_expiry_worker(), name="payment_expiry_worker")
-    asyncio.create_task(run_job_dispatch_worker(), name="job_dispatch_worker")
+    _active_workers.extend([
+        asyncio.create_task(run_cleanup_worker(), name="cleanup_worker"),
+        asyncio.create_task(run_heartbeat_monitor(), name="heartbeat_monitor"),
+        asyncio.create_task(run_payment_expiry_worker(), name="payment_expiry_worker"),
+        asyncio.create_task(run_job_dispatch_worker(), name="job_dispatch_worker"),
+        asyncio.create_task(run_workflow_recovery_worker(), name="workflow_recovery_worker")
+    ])
 
     if settings.ENVIRONMENT == "development":
-        asyncio.create_task(run_simulated_kiosk_worker(), name="simulated_kiosk_worker")
+        _active_workers.append(
+            asyncio.create_task(run_simulated_kiosk_worker(), name="simulated_kiosk_worker")
+        )
 
     logger.info("all_background_workers_started")
+
+
+async def stop_all_workers() -> None:
+    """
+    Gracefully cancels all active background workers and awaits their termination.
+    
+    Called from the FastAPI lifespan context manager during shutdown.
+    """
+    if not _active_workers:
+        return
+
+    logger.info("stopping_background_workers", count=len(_active_workers))
+    for task in _active_workers:
+        task.cancel()
+
+    await asyncio.gather(*_active_workers, return_exceptions=True)
+    _active_workers.clear()
+    logger.info("background_workers_stopped")
 

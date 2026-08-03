@@ -5,10 +5,13 @@ Data access for PricingRule records.
 Pricing history is preserved — old rules are never deleted, only deactivated.
 """
 from __future__ import annotations
+
 from datetime import UTC, datetime
 from decimal import Decimal
+
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.logging import get_logger
 from app.models.pricing_rule import PricingRule
 

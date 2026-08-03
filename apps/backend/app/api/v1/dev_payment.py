@@ -150,6 +150,8 @@ async def dev_complete_payment(
         payment_id=str(payment.id),
     )
 
+    await db.commit()
+
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={

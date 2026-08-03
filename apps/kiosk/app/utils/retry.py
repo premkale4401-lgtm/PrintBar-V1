@@ -1,4 +1,4 @@
-﻿"""
+"""
 PrintBar Kiosk Agent — Retry Utility
 
 Exponential backoff helper for network operations.
@@ -19,6 +19,7 @@ async def retry_with_backoff(
     base_delay: float = 1.0,
     max_delay: float = 60.0,
     label: str = "operation",
+    exclude_exceptions: tuple[type[Exception], ...] = (),
 ) -> any:
     """
     Retries an async function with exponential backoff.
@@ -29,12 +30,13 @@ async def retry_with_backoff(
         base_delay:   Initial delay in seconds.
         max_delay:    Maximum delay cap.
         label:        Human-readable label for log messages.
+        exclude_exceptions: Exceptions that should NOT be retried (fail instantly).
 
     Returns:
         The return value of fn() on success.
 
     Raises:
-        The last exception from fn() if all attempts fail.
+        The last exception from fn() if all attempts fail or if an excluded exception is raised.
     """
     delay = base_delay
     last_exc: Exception | None = None
@@ -42,6 +44,9 @@ async def retry_with_backoff(
     for attempt in range(1, max_attempts + 1):
         try:
             return await fn()
+        except exclude_exceptions as exc:
+            logger.error(f"{label} failed with non-retryable error: {exc}")
+            raise
         except Exception as exc:
             last_exc = exc
             if attempt == max_attempts:

@@ -13,14 +13,15 @@ import asyncio
 import os
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
+
+import app.models  # noqa: F401 — registers all 13 models with metadata
+from alembic import context
 
 # Import ALL models so Alembic can detect changes for autogenerate.
 # This is the authoritative model import for migrations.
 from app.database.base import Base  # noqa: F401
-import app.models  # noqa: F401 — registers all 13 models with metadata
 
 config = context.config
 

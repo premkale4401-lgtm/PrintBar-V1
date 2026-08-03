@@ -24,7 +24,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -251,6 +251,11 @@ async def _handle_job_completed(
             )
             await file_repo.mark_deleted(job.uploaded_file_id)
 
+    from app.core.metrics import PRINT_JOB_DURATION
+    if job.created_at:
+        duration = (datetime.now(tz=UTC) - job.created_at).total_seconds()
+        PRINT_JOB_DURATION.observe(duration)
+
     logger.info("ws_job_completed", job_id=job_id_str, kiosk_id=kiosk_id)
 
 
@@ -275,6 +280,9 @@ async def _handle_job_failed(
     try:
         await repo.mark_failed(job_uuid, reason)
         logger.info("ws_job_failed", job_id=job_id_str, reason=reason)
+        
+        from app.core.metrics import PRINT_JOBS_FAILED
+        PRINT_JOBS_FAILED.inc()
     except Exception as exc:
         logger.warning("ws_job_fail_error", error=str(exc))
 

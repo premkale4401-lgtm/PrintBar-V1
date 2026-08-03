@@ -26,12 +26,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import (
-    COLOR_MODE_BW,
     COLOR_MODE_COLOR,
     PAPER_SIZE_A3,
-    PAPER_SIZE_A4,
     PAPER_SIZE_LEGAL,
-    PAPER_SIZE_LETTER,
 )
 from app.core.logging import get_logger
 from app.models.pricing_rule import PricingRule

@@ -13,6 +13,7 @@ Usage:
 Never run this in production. Use migration 0002 instead.
 """
 from __future__ import annotations
+
 import asyncio
 import os
 import sys
@@ -25,11 +26,12 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
+
 async def seed():
+    from app.core.security import password_hasher
     from app.database.session import AsyncSessionFactory
     from app.models.pricing_rule import PricingRule
     from app.models.user import User
-    from app.core.security import password_hasher
 
     async with AsyncSessionFactory() as db:
         # Seed pricing rule.

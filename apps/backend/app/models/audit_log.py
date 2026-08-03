@@ -22,7 +22,7 @@ from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database.base import Base, UUIDMixin, TimestampMixin
+from app.database.base import Base, TimestampMixin, UUIDMixin
 
 
 class AuditLog(Base, UUIDMixin, TimestampMixin):

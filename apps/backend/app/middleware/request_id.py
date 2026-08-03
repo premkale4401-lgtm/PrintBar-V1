@@ -38,15 +38,21 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         call_next: RequestResponseEndpoint,
     ) -> Response:
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        correlation_id = request.headers.get("X-Correlation-ID") or request_id
 
         # Bind to structlog context so every log line within this request
         # automatically includes the request_id without explicit passing.
         structlog.contextvars.clear_contextvars()
-        structlog.contextvars.bind_contextvars(request_id=request_id)
+        structlog.contextvars.bind_contextvars(
+            request_id=request_id,
+            correlation_id=correlation_id,
+        )
 
         # Store on request state so route handlers can access it if needed.
         request.state.request_id = request_id
+        request.state.correlation_id = correlation_id
 
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
+        response.headers["X-Correlation-ID"] = correlation_id
         return response

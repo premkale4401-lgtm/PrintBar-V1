@@ -5,14 +5,17 @@ Aggregated analytics and reporting queries.
 Used by the admin dashboard and analytics endpoints.
 """
 from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from sqlalchemy import func, select, and_
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.logging import get_logger
+from app.models.kiosk import Kiosk
 from app.models.payment import Payment
 from app.models.print_job import PrintJob
-from app.models.kiosk import Kiosk
 
 logger = get_logger(__name__)
 

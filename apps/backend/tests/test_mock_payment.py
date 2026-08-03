@@ -3,7 +3,7 @@ Tests for the complete mock payment flow:
   create_order → dev/complete → QUEUED → COMPLETED
 """
 from __future__ import annotations
-from unittest.mock import AsyncMock, patch
+
 import pytest
 
 

@@ -47,6 +47,7 @@ class UploadService:
         filename: str,
         content_type: str,
         file_bytes: bytes,
+        correlation_id: str = "unknown",
     ) -> UploadedFile:
         """
         Full upload pipeline: validate → checksum → store → persist.
@@ -56,20 +57,10 @@ class UploadService:
             filename:     Original filename from the multipart upload.
             content_type: MIME type declared by the client.
             file_bytes:   Complete file content.
+            correlation_id: Trace ID.
 
         Returns:
             Persisted UploadedFile database record.
-
-        Raises:
-            UnsupportedFileTypeError:    Extension or MIME invalid.
-            FileTooLargeError:           File exceeds size limit.
-            InvalidPDFError:             PDF structure invalid.
-            PasswordProtectedPDFError:   PDF is encrypted.
-            EmbeddedJavaScriptError:     PDF contains JavaScript.
-            ZeroPagesError:              PDF has no pages.
-            TooManyPagesError:           PDF exceeds page limit.
-            CorruptedPDFError:           PDF pages unreadable.
-            StorageError:                Supabase Storage write failed.
         """
         # Step 1–10: File validation (PDF, JPG, PNG supported).
         page_count = pdf_validator.validate(filename, content_type, file_bytes)
@@ -77,13 +68,23 @@ class UploadService:
         # Compute SHA-256 for integrity verification at download time.
         sha256 = storage_service.compute_sha256(file_bytes)
 
+        # ── Idempotency Check ─────────────────────────────────────────────────
+        existing_file = await self._repo.get_by_sha256_and_session(sha256, session_id)
+        if existing_file:
+            logger.info(
+                "upload_service_idempotent",
+                session_id=session_id,
+                file_id=str(existing_file.id),
+                correlation_id=correlation_id,
+            )
+            return existing_file
+
         # Generate a unique file ID for the storage path.
         file_id = str(uuid.uuid4())
         object_path = storage_service.build_object_path(session_id, file_id)
         bucket = settings.STORAGE_BUCKET_PRINT_FILES
 
         # Determine the correct content type for storage.
-        # Use the declared content_type for images, fallback to application/pdf.
         base_mime = content_type.split(";")[0].strip().lower()
         _supported_mimes = {"image/jpeg", "image/jpg", "image/png", "application/pdf"}
         safe_content_type = base_mime if base_mime in _supported_mimes else "application/pdf"
@@ -96,26 +97,38 @@ class UploadService:
             content_type=safe_content_type,
         )
 
-        # Persist metadata in the database.
-        uploaded_file = await self._repo.create(
-            session_id=session_id,
-            storage_path=object_path,
-            storage_bucket=bucket,
-            original_filename=filename,
-            file_size_bytes=len(file_bytes),
-            page_count=page_count,
-            sha256_checksum=sha256,
-            expires_in_minutes=settings.ABANDONED_UPLOAD_EXPIRY_MINUTES,
-        )
+        try:
+            # Persist metadata in the database atomically.
+            async with self._db.begin_nested():
+                uploaded_file = await self._repo.create(
+                    session_id=session_id,
+                    storage_path=object_path,
+                    storage_bucket=bucket,
+                    original_filename=filename,
+                    file_size_bytes=len(file_bytes),
+                    page_count=page_count,
+                    sha256_checksum=sha256,
+                    correlation_id=correlation_id,
+                    expires_in_minutes=settings.ABANDONED_UPLOAD_EXPIRY_MINUTES,
+                )
 
-        logger.info(
-            "upload_service_complete",
-            session_id=session_id,
-            file_id=str(uploaded_file.id),
-            page_count=page_count,
-            sha256=sha256[:8] + "...",
-        )
-        return uploaded_file
+            await self._db.commit()
+            logger.info(
+                "upload_service_complete",
+                session_id=session_id,
+                file_id=str(uploaded_file.id),
+                page_count=page_count,
+                sha256=sha256[:8] + "...",
+            )
+            return uploaded_file
+        except Exception:
+            await self._db.rollback()
+            # Rollback external storage side-effect if DB fails.
+            try:
+                await storage_service.delete_file(bucket, object_path)
+            except Exception as cleanup_exc:
+                logger.error("upload_service_rollback_storage_failed", error=str(cleanup_exc))
+            raise
 
     async def delete_upload(
         self, session_id: str, file_id: uuid.UUID
@@ -136,11 +149,19 @@ class UploadService:
         if not uploaded_file:
             return False
 
-        if uploaded_file.storage_path:
-            await storage_service.delete_file(
-                bucket=uploaded_file.storage_bucket,
-                object_path=uploaded_file.storage_path,
-            )
-
-        await self._repo.mark_deleted(file_id)
-        return True
+        try:
+            async with self._db.begin_nested():
+                await self._repo.mark_deleted(file_id)
+            
+            # External call inside the overall block, if it fails, the nested block above is rolled back
+            if uploaded_file.storage_path:
+                await storage_service.delete_file(
+                    bucket=uploaded_file.storage_bucket,
+                    object_path=uploaded_file.storage_path,
+                )
+                
+            await self._db.commit()
+            return True
+        except Exception:
+            await self._db.rollback()
+            raise

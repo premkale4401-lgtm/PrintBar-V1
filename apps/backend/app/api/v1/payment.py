@@ -20,13 +20,14 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Header, Request, status
+from fastapi import APIRouter, Depends, Header, Request, status, Body
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.rate_limit import limiter
 from app.database.session import get_db
 from app.dependencies import get_current_guest_session
 from app.exceptions.base import (
@@ -111,6 +112,16 @@ async def create_payment_order(
     """Creates a print job and payment order. Returns gateway order details."""
     service = PaymentService(db)
 
+    # ── Duplicate Request Protection ──────────────────────────────────────────
+    # If frontend doesn't provide an idempotency key, we generate a deterministic
+    # one based on the order parameters to prevent accidental double-orders.
+    if not idempotency_key:
+        import hashlib
+        raw_key = f"{session_id}_{file_id}_{copies}_{pages_selected}_{color_mode}_{paper_size}_{duplex}"
+        idempotency_key = f"order_{hashlib.sha256(raw_key.encode()).hexdigest()[:16]}"
+        
+    correlation_id = getattr(request.state, "correlation_id", "unknown")
+
     try:
         result = await service.create_order(
             session_id=session_id,
@@ -124,6 +135,7 @@ async def create_payment_order(
             page_range=page_range,
             orientation=orientation,
             idempotency_key=idempotency_key,
+            correlation_id=correlation_id,
         )
     except PaymentAmountMismatchError:
         return JSONResponse(
@@ -157,6 +169,9 @@ async def create_payment_order(
     # Inject mock mode flag so frontend can show "Complete Payment" button.
     result["isMockMode"] = settings.is_mock_payment
 
+    from app.core.metrics import PRINT_JOBS_TOTAL
+    PRINT_JOBS_TOTAL.inc()
+
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
         content={"success": True, "data": result},
@@ -177,7 +192,9 @@ async def create_payment_order(
         "Requires a valid guest session token."
     ),
 )
+@limiter.limit("10/minute")
 async def verify_payment(
+    request: Request,
     request_body: PaymentVerifyRequest,
     session_id: str = Depends(get_current_guest_session),
     db: AsyncSession = Depends(get_db),

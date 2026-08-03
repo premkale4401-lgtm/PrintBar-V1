@@ -8,11 +8,7 @@ Tests for:
 """
 from __future__ import annotations
 
-import hmac
-import hashlib
-import json
 import pytest
-from unittest.mock import patch, AsyncMock
 
 from app.core.config import get_settings
 

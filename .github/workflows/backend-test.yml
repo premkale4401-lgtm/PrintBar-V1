@@ -1,4 +1,4 @@
-﻿name: Backend Tests
+name: Backend Tests
 
 on:
   push:
@@ -44,9 +44,23 @@ jobs:
           SUPABASE_URL=https://test.supabase.co
           SUPABASE_ANON_KEY=test_anon_key
           SUPABASE_SERVICE_ROLE_KEY=test_service_key
-          JWT_SECRET_KEY=ci_test_secret_key_do_not_use_in_production
+          JWT_SECRET=this_is_a_test_jwt_secret_that_is_at_least_sixty_four_characters_long_for_security
           REDIS_URL=redis://localhost:6379/0
           EOF
+
+      - name: Run TruffleHog (Secret Scan)
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --debug --only-verified
+
+      - name: Lint with Ruff
+        run: .venv/Scripts/python -m ruff check app tests
+
+      - name: Type Check with mypy
+        run: .venv/Scripts/python -m mypy app tests
 
       - name: Run tests
         run: |
@@ -57,3 +71,6 @@ jobs:
         if: success()
         with:
           fail_ci_if_error: false
+
+      - name: Docker Build Check
+        run: docker build -t printbar-backend-test .

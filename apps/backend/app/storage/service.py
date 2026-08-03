@@ -32,7 +32,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.exceptions.base import StorageError, StorageObjectNotFoundError
+from app.exceptions.base import StorageError
 
 logger = get_logger(__name__)
 settings = get_settings()

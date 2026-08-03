@@ -118,7 +118,7 @@ apiClient.interceptors.response.use(
     // Network / timeout errors.
     if (error.code === 'ECONNABORTED') {
       return Promise.reject(
-        new PrintBarApiError('SYS_TIMEOUT', 'Request timed out. Please try again.', 0),
+        new PrintBarApiError('SYS_TIMEOUT', 'Request timed out. Please try again.', statusCode),
       );
     }
 
@@ -132,8 +132,17 @@ apiClient.interceptors.response.use(
       );
     }
 
+    let friendlyMessage = error.message;
+    if (statusCode === 429) {
+      friendlyMessage = 'Too many requests. Please wait a moment and try again.';
+    } else if (statusCode === 502 || statusCode === 503 || statusCode === 504) {
+      friendlyMessage = 'Our servers are currently unavailable. Please try again in a few minutes.';
+    } else if (statusCode >= 500) {
+      friendlyMessage = 'An unexpected server error occurred. Please try again later.';
+    }
+
     return Promise.reject(
-      new PrintBarApiError('SYS_UNKNOWN', error.message, statusCode),
+      new PrintBarApiError('SYS_UNKNOWN', friendlyMessage, statusCode),
     );
   },
 );

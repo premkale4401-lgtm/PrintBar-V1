@@ -77,6 +77,11 @@ class UnsupportedFileTypeError(UploadError):
         super().__init__("Unsupported file type. Please upload a PDF, JPG, or PNG file.", "UPLOAD_001")
 
 
+class SpoofedExtensionError(UploadError):
+    def __init__(self) -> None:
+        super().__init__("File extension does not match its contents (spoofed file).", "UPLOAD_011")
+
+
 class FileTooLargeError(UploadError):
     def __init__(self, max_mb: int) -> None:
         super().__init__(f"File exceeds the {max_mb} MB limit.", "UPLOAD_002")
@@ -131,9 +136,14 @@ class PaymentError(PrintBarError):
         super().__init__(message, error_code, HTTPStatus.BAD_REQUEST)
 
 
-class InvalidPaymentSignatureError(PaymentError):
+class PaymentVerificationFailed(PaymentError):
+    def __init__(self, message: str = "Payment verification failed.") -> None:
+        super().__init__(message, "PAY_001")
+
+
+class InvalidPaymentSignatureError(PaymentVerificationFailed):
     def __init__(self) -> None:
-        super().__init__("Payment signature verification failed.", "PAY_001")
+        super().__init__("Payment signature verification failed.")
 
 
 class PaymentTimeoutError(PaymentError):
@@ -166,6 +176,15 @@ class CurrencyMismatchError(PaymentError):
         super().__init__("Payment currency does not match the order.", "PAY_007")
 
 
+class InvalidPaymentTransition(PrintBarError):
+    def __init__(self, current: str, target: str) -> None:
+        super().__init__(
+            f"Cannot transition payment from {current} to {target}.",
+            "PAY_008",
+            HTTPStatus.CONFLICT,
+        )
+
+
 # ─── Print Job ─────────────────────────────────────────────────────────────────
 
 class JobNotFoundError(PrintBarError):
@@ -173,13 +192,23 @@ class JobNotFoundError(PrintBarError):
         super().__init__("Print job not found.", "JOB_001", HTTPStatus.NOT_FOUND)
 
 
-class InvalidJobTransitionError(PrintBarError):
+class InvalidStateTransition(PrintBarError):
     def __init__(self, current: str, target: str) -> None:
         super().__init__(
             f"Cannot transition job from {current} to {target}.",
             "JOB_002",
             HTTPStatus.CONFLICT,
         )
+
+
+class ExpiredPrintJob(PrintBarError):
+    def __init__(self) -> None:
+        super().__init__("Print job has expired.", "JOB_004", HTTPStatus.GONE)
+
+
+class QueueFull(PrintBarError):
+    def __init__(self) -> None:
+        super().__init__("Print queue is full.", "JOB_005", HTTPStatus.SERVICE_UNAVAILABLE)
 
 
 class NoKioskAvailableError(PrintBarError):
@@ -203,6 +232,18 @@ class KioskOfflineError(PrintBarError):
         super().__init__("Kiosk is offline.", "KIOSK_002", HTTPStatus.SERVICE_UNAVAILABLE)
 
 
+class PrinterOffline(KioskOfflineError):
+    def __init__(self) -> None:
+        super().__init__()
+        self.message = "Printer is offline."
+        self.error_code = "KIOSK_004"
+
+
+class DownloadFailed(PrintBarError):
+    def __init__(self) -> None:
+        super().__init__("Kiosk failed to download the print file.", "KIOSK_005", HTTPStatus.INTERNAL_SERVER_ERROR)
+
+
 class KioskInvalidApiKeyError(PrintBarError):
     def __init__(self) -> None:
         super().__init__("Invalid kiosk API key.", "KIOSK_003", HTTPStatus.UNAUTHORIZED)
@@ -213,8 +254,13 @@ class KioskInvalidApiKeyError(PrintBarError):
 class StorageError(PrintBarError):
     """Raised on Supabase Storage operation failures."""
 
-    def __init__(self, message: str = "A storage error occurred.") -> None:
-        super().__init__(message, "STORAGE_001", HTTPStatus.INTERNAL_SERVER_ERROR)
+    def __init__(self, message: str = "A storage error occurred.", error_code: str = "STORAGE_001") -> None:
+        super().__init__(message, error_code, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+
+class StorageUnavailable(StorageError):
+    def __init__(self) -> None:
+        super().__init__("Storage service is currently unavailable.", "STORAGE_003")
 
 
 class StorageObjectNotFoundError(PrintBarError):

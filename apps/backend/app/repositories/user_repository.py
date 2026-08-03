@@ -4,9 +4,12 @@ PrintBar Backend — User Repository
 Data access layer for User (admin) records.
 """
 from __future__ import annotations
+
 import uuid
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.logging import get_logger
 from app.models.user import User
 

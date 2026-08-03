@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.exceptions.base import InvalidPaymentTransition
 from app.models.payment import Payment
 from app.models.payment_webhook import PaymentWebhook
 
@@ -102,6 +103,12 @@ class PaymentRepository:
         self, payment_id: uuid.UUID, gateway_order_id: str
     ) -> None:
         """Sets the gateway order ID after order creation succeeds."""
+        payment = await self.get_by_id(payment_id)
+        if not payment:
+            return
+            
+        self._validate_transition(payment.status, "PENDING")
+        
         await self._db.execute(
             update(Payment)
             .where(Payment.id == payment_id)
@@ -111,11 +118,37 @@ class PaymentRepository:
             )
         )
 
+    def _validate_transition(self, current: str, target: str) -> None:
+        valid_transitions = {
+            "CREATED": ["PENDING"],
+            "PENDING": ["VERIFYING", "SUCCESS", "FAILED", "CANCELLED", "EXPIRED"],
+            "VERIFYING": ["SUCCESS", "FAILED"],
+            # Terminal states allow no transitions
+            "SUCCESS": [],
+            "FAILED": [],
+            "CANCELLED": [],
+            "EXPIRED": [],
+        }
+        
+        if target not in valid_transitions.get(current, []):
+            logger.warning(
+                "invalid_payment_transition",
+                current_status=current,
+                target_status=target,
+            )
+            raise InvalidPaymentTransition(current, target)
+
     async def mark_verifying(self, payment_id: uuid.UUID) -> None:
         """
         Marks payment as VERIFYING — intermediate state while webhook is being processed.
         Prevents race conditions between callback and webhook handlers.
         """
+        payment = await self.get_by_id(payment_id)
+        if not payment:
+            return
+            
+        self._validate_transition(payment.status, "VERIFYING")
+        
         await self._db.execute(
             update(Payment)
             .where(Payment.id == payment_id)
@@ -144,6 +177,12 @@ class PaymentRepository:
             signature_prefix: First 16 chars of signature for audit (never full).
         """
         now = datetime.now(tz=UTC).isoformat()
+        payment = await self.get_by_id(payment_id)
+        if not payment:
+            return
+            
+        self._validate_transition(payment.status, "SUCCESS")
+        
         await self._db.execute(
             update(Payment)
             .where(Payment.id == payment_id)
@@ -164,6 +203,12 @@ class PaymentRepository:
         self, payment_id: uuid.UUID, reason: str = "GATEWAY_FAILURE"
     ) -> None:
         """Marks a payment as FAILED."""
+        payment = await self.get_by_id(payment_id)
+        if not payment:
+            return
+            
+        self._validate_transition(payment.status, "FAILED")
+        
         await self._db.execute(
             update(Payment)
             .where(Payment.id == payment_id)
@@ -173,6 +218,12 @@ class PaymentRepository:
 
     async def mark_expired(self, payment_id: uuid.UUID) -> None:
         """Marks a payment as EXPIRED."""
+        payment = await self.get_by_id(payment_id)
+        if not payment:
+            return
+            
+        self._validate_transition(payment.status, "EXPIRED")
+        
         await self._db.execute(
             update(Payment)
             .where(Payment.id == payment_id)
@@ -184,6 +235,12 @@ class PaymentRepository:
         Marks a payment as CANCELLED.
         Called when the user dismisses the payment modal without completing payment.
         """
+        payment = await self.get_by_id(payment_id)
+        if not payment:
+            return
+            
+        self._validate_transition(payment.status, "CANCELLED")
+        
         await self._db.execute(
             update(Payment)
             .where(Payment.id == payment_id)
@@ -191,22 +248,24 @@ class PaymentRepository:
         )
         logger.info("payment_marked_cancelled", payment_id=str(payment_id))
 
-    async def is_webhook_duplicate(self, gateway_txn_id: str) -> bool:
+    async def is_webhook_duplicate(self, gateway_event_id: str) -> bool:
         """
-        Checks whether a webhook with this transaction ID has already been processed.
+        Checks whether a webhook with this event ID has already been processed.
 
         Used for idempotency — Razorpay may send the same webhook multiple times.
 
         Args:
-            gateway_txn_id: The gateway transaction ID from the webhook payload.
+            gateway_event_id: The unique event ID from the gateway.
 
         Returns:
-            True if this webhook was already successfully processed.
+            True if already processed, False otherwise.
         """
+        if not gateway_event_id:
+            return False
+
         result = await self._db.execute(
             select(PaymentWebhook).where(
-                PaymentWebhook.gateway_txn_id == gateway_txn_id,
-                PaymentWebhook.is_processed.is_(True),
+                PaymentWebhook.gateway_event_id == gateway_event_id
             )
         )
         return result.scalar_one_or_none() is not None
@@ -220,6 +279,7 @@ class PaymentRepository:
         signature_valid: bool,
         amount_inr: object | None = None,
         status: str | None = None,
+        gateway_event_id: str | None = None,
     ) -> PaymentWebhook:
         """
         Stores a raw webhook payload verbatim before any processing.
@@ -230,11 +290,12 @@ class PaymentRepository:
         Args:
             payment_id:      FK to the payment (may be None if order lookup fails).
             raw_payload:     Full webhook payload dict.
-            gateway_txn_id:  Deduplication key (Razorpay payment ID).
+            gateway_txn_id:  Payment ID (legacy deduplication).
             event_type:      Webhook event type string.
             signature_valid: Whether HMAC verification passed.
             amount_inr:      Amount from webhook payload.
             status:          Status string from webhook.
+            gateway_event_id: Unique event ID for deduplication.
 
         Returns:
             Persisted PaymentWebhook instance.
@@ -242,6 +303,7 @@ class PaymentRepository:
         webhook = PaymentWebhook(
             payment_id=payment_id,
             gateway_txn_id=gateway_txn_id,
+            gateway_event_id=gateway_event_id,
             event_type=event_type,
             raw_payload=json.dumps(raw_payload),
             signature_valid=signature_valid,
@@ -257,6 +319,7 @@ class PaymentRepository:
             payment_id=str(payment_id) if payment_id else None,
             signature_valid=signature_valid,
             event_type=event_type,
+            gateway_event_id=gateway_event_id,
         )
         return webhook
 

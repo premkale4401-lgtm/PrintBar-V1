@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import pytest
 
-
 # ─── Auth Guard Tests ─────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

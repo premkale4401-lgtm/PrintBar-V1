@@ -17,13 +17,12 @@ Retention: HeartbeatLog entries are retained for 30 days then auto-purged.
 """
 
 import uuid
-from decimal import Decimal
 
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database.base import Base, UUIDMixin, TimestampMixin
+from app.database.base import Base, TimestampMixin, UUIDMixin
 
 
 class HeartbeatLog(Base, UUIDMixin, TimestampMixin):

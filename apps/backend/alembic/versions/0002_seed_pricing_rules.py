@@ -9,10 +9,13 @@ All amounts in INR. Idempotent — skips if a rule already exists.
 """
 
 from __future__ import annotations
+
+import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
-import uuid
+
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0002_seed_pricing_rules"

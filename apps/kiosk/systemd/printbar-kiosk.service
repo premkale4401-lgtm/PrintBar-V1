@@ -1,9 +1,11 @@
-﻿[Unit]
+[Unit]
 Description=PrintBar Kiosk Agent
 Documentation=https://github.com/printbar/PrintBar-V1
 After=network-online.target cups.service
 Wants=network-online.target
 Requires=cups.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple

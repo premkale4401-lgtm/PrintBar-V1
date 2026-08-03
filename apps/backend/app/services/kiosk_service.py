@@ -5,8 +5,11 @@ Business logic for kiosk lifecycle management.
 All DB operations are delegated to KioskRepository.
 """
 from __future__ import annotations
+
 import uuid
+
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.logging import get_logger
 from app.core.security import jwt_handler
 from app.models.kiosk import Kiosk

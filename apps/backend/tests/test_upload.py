@@ -11,7 +11,6 @@ so they run without any external infrastructure.
 from __future__ import annotations
 
 import io
-import struct
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -21,10 +20,8 @@ from app.exceptions.base import (
     InvalidPDFError,
     TooManyPagesError,
     UnsupportedFileTypeError,
-    ZeroPagesError,
 )
 from app.storage.validation import PDFValidator
-
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -210,8 +207,9 @@ async def test_upload_valid_pdf_succeeds(async_client) -> None:
             new_callable=AsyncMock,
         ) as mock_create,
     ):
-        from app.models.uploaded_file import UploadedFile
         import uuid
+
+        from app.models.uploaded_file import UploadedFile
         mock_file = UploadedFile(
             session_id=token[:36],
             storage_path="print-files/2026/08/aabbccdd/test.pdf",

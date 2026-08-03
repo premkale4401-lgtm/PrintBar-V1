@@ -35,12 +35,15 @@ const queryClient = new QueryClient({
 
 function AppContent() {
   const navigate = useNavigate();
-  const [kioskStep, setKioskStep] = useState<PrintStep>('upload');
+  const [kioskStep, setKioskStep] = useState<PrintStep>(() => {
+    const saved = sessionStorage.getItem('pb_kiosk_step');
+    return (saved as PrintStep) || 'upload';
+  });
 
   // Track current job ID through kiosk flow (persists across Easebuzz redirect).
-  const [currentJobId, setCurrentJobId] = useState<string | null>(
-    sessionStorage.getItem(JOB_ID_STORAGE_KEY),
-  );
+  const [currentJobId, setCurrentJobId] = useState<string | null>(() => {
+    return sessionStorage.getItem(JOB_ID_STORAGE_KEY);
+  });
 
   // Admin Authentication State — checks backend JWT presence.
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
@@ -88,16 +91,48 @@ function AppContent() {
   const { hubs } = useKiosks();
 
   // Print Job Configuration State
-  const [printConfig, setPrintConfig] = useState<PrintConfig>({
-    file: null,
-    files: [],
-    copies: 1,
-    paperSize: 'A4',
-    colorMode: 'bw',
-    duplex: false,
-    orientation: 'portrait',
-    selectedHubId: hubs[0]?.id || DEFAULT_KIOSK_HUBS[0].id,
+  const [printConfig, setPrintConfig] = useState<PrintConfig>(() => {
+    const saved = sessionStorage.getItem('pb_print_config');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        // ignore parse error
+      }
+    }
+    return {
+      file: null,
+      files: [],
+      copies: 1,
+      paperSize: 'A4',
+      colorMode: 'bw',
+      duplex: false,
+      orientation: 'portrait',
+      selectedHubId: hubs[0]?.id || DEFAULT_KIOSK_HUBS[0].id,
+    };
   });
+
+  // Persist state to session storage
+  React.useEffect(() => {
+    sessionStorage.setItem('pb_kiosk_step', kioskStep);
+  }, [kioskStep]);
+
+  React.useEffect(() => {
+    sessionStorage.setItem('pb_print_config', JSON.stringify(printConfig));
+  }, [printConfig]);
+
+  // Navigation Safety: Warn if leaving active print workflow
+  React.useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (kioskStep === 'configure' || kioskStep === 'payment' || kioskStep === 'printing') {
+        const msg = "You have an active print workflow. Are you sure you want to leave?";
+        e.returnValue = msg;
+        return msg;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [kioskStep]);
 
   const onlineHubs = hubs.filter(h => h.status === 'online');
 
@@ -137,6 +172,24 @@ function AppContent() {
   const handleJobCreated = (jobId: string) => {
     setCurrentJobId(jobId);
     sessionStorage.setItem(JOB_ID_STORAGE_KEY, jobId);
+  };
+
+  const handleClearSession = () => {
+    setPrintConfig({
+      file: null,
+      files: [],
+      copies: 1,
+      paperSize: 'A4',
+      colorMode: 'bw',
+      duplex: false,
+      orientation: 'portrait',
+      selectedHubId: hubs[0]?.id || DEFAULT_KIOSK_HUBS[0].id,
+    });
+    setKioskStep('upload');
+    setCurrentJobId(null);
+    sessionStorage.removeItem('pb_print_config');
+    sessionStorage.removeItem('pb_kiosk_step');
+    sessionStorage.removeItem(JOB_ID_STORAGE_KEY);
   };
 
   return (
@@ -279,10 +332,13 @@ function AppContent() {
                   <StepSuccess
                     config={printConfig}
                     onPrintAnother={() => {
-                      setPrintConfig(prev => ({ ...prev, file: null }));
-                      setKioskStep('upload');
+                      handleClearSession();
+                      navigate('/kiosk');
                     }}
-                    onGoHome={() => navigate('/')}
+                    onGoHome={() => {
+                      handleClearSession();
+                      navigate('/');
+                    }}
                   />
                 )}
               </div>

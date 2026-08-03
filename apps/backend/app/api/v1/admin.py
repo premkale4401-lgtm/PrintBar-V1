@@ -15,7 +15,7 @@ GET  /api/v1/admin/users                  — List platform users (admin only)
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
@@ -30,8 +30,8 @@ from app.models.audit_log import AuditLog
 from app.models.heartbeat_log import HeartbeatLog
 from app.models.kiosk import Kiosk
 from app.models.payment import Payment
-from app.models.print_job import PrintJob
 from app.models.pricing_rule import PricingRule
+from app.models.print_job import PrintJob
 from app.models.user import User
 from app.repositories.kiosk_repository import KioskRepository
 from app.websocket.manager import ws_manager
@@ -205,6 +205,44 @@ async def list_jobs(
     }
 
 
+@router.get("/jobs/{job_id}/timeline", summary="Get job timeline")
+async def get_job_timeline(
+    job_id: uuid.UUID,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Returns the audit log timeline for a specific print job."""
+    import json
+    
+    # Check if job exists
+    job = await db.execute(select(PrintJob).where(PrintJob.id == job_id))
+    if not job.scalar_one_or_none():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail={"code": "JOB_001", "message": "Job not found."})
+
+    # Fetch audit logs related to this job
+    result = await db.execute(
+        select(AuditLog)
+        .where(AuditLog.print_job_id == job_id)
+        .order_by(AuditLog.created_at.asc())
+    )
+    logs = result.scalars().all()
+
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": str(log.id),
+                "action": log.action,
+                "result": log.result,
+                "details": json.loads(log.details) if log.details else None,
+                "createdAt": log.created_at.isoformat() if log.created_at else None,
+            }
+            for log in logs
+        ]
+    }
+
+
 # ─── Kiosks ───────────────────────────────────────────────────────────────────
 
 @router.get("/kiosks", summary="List all kiosks")
@@ -338,6 +376,7 @@ async def create_kiosk(
     )
 
     logger.info("kiosk_registered_via_admin", kiosk_id=str(kiosk.id), name=kiosk.name)
+    await db.commit()
 
     return {
         "success": True,
@@ -366,6 +405,7 @@ async def rotate_kiosk_key(
     raw_key = await repo.rotate_api_key(kiosk_id)
 
     logger.info("kiosk_api_key_rotated", kiosk_id=str(kiosk_id))
+    await db.commit()
 
     return {
         "success": True,
@@ -445,6 +485,7 @@ async def create_pricing_rule(
     )
     db.add(rule)
     await db.flush()
+    await db.commit()
 
     logger.info("pricing_rule_created", rule_id=str(rule.id), name=rule.name)
 

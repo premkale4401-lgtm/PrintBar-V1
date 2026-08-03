@@ -33,7 +33,6 @@ import httpx
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.exceptions.base import (
-    InvalidPaymentSignatureError,
     PaymentAmountMismatchError,
     PaymentGatewayError,
 )

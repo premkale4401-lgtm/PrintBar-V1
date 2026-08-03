@@ -28,7 +28,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 import httpx
 
@@ -292,6 +292,7 @@ class RazorpayProvider:
         order_entity = payload.get("payload", {}).get("order", {}).get("entity", {})
 
         # Use payment entity first; fall back to order entity for order.paid events.
+        gateway_event_id = payload.get("id")
         gateway_order_id = entity.get("order_id") or order_entity.get("id", "")
         gateway_txn_id = entity.get("id", "")
         amount_paise = entity.get("amount") or order_entity.get("amount_paid", 0)
@@ -305,6 +306,7 @@ class RazorpayProvider:
         logger.info(
             "razorpay_webhook_verified",
             event_type=event_type,
+            gateway_event_id=gateway_event_id,
             gateway_order_id=gateway_order_id,
             gateway_txn_id=gateway_txn_id,
             is_payment_success=is_payment_success,
@@ -312,6 +314,7 @@ class RazorpayProvider:
 
         return WebhookResult(
             event_type=event_type,
+            gateway_event_id=gateway_event_id,
             gateway_order_id=gateway_order_id,
             gateway_txn_id=gateway_txn_id,
             amount_paise=int(amount_paise or 0),

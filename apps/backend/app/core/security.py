@@ -20,7 +20,7 @@ from typing import Any
 from uuid import UUID
 
 from argon2 import PasswordHasher as Argon2PasswordHasher
-from argon2.exceptions import VerifyMismatchError, VerificationError, InvalidHashError
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from jose import ExpiredSignatureError, JWTError, jwt
 
 from app.core.config import get_settings
@@ -124,6 +124,7 @@ class JWTHandler:
                 token,
                 self._settings.JWT_SECRET,
                 algorithms=[self._settings.JWT_ALGORITHM],
+                options={"leeway": 60},
             )
             return payload
         except ExpiredSignatureError:

@@ -33,7 +33,6 @@ before any Supabase Storage write occurs.
 from __future__ import annotations
 
 import io
-import struct
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -45,6 +44,7 @@ from app.exceptions.base import (
     PasswordProtectedPDFError,
     TooManyPagesError,
     UnsupportedFileTypeError,
+    SpoofedExtensionError,
     ZeroPagesError,
 )
 
@@ -174,17 +174,17 @@ class PDFValidator:
     def _step3_check_magic_bytes(self, extension: str, file_bytes: bytes) -> None:
         """Step 3: First bytes must match the expected file signature."""
         if extension == "pdf":
-            if not file_bytes[:4] == _PDF_MAGIC:
+            if file_bytes[:4] != _PDF_MAGIC:
                 logger.warning("upload_validation_fail_magic_pdf")
-                raise InvalidPDFError("File does not appear to be a valid PDF.")
+                raise SpoofedExtensionError()
         elif extension in ("jpg", "jpeg"):
-            if not file_bytes[:3] == _JPEG_MAGIC:
+            if file_bytes[:3] != _JPEG_MAGIC:
                 logger.warning("upload_validation_fail_magic_jpeg")
-                raise InvalidPDFError("File does not appear to be a valid JPEG image.")
+                raise SpoofedExtensionError()
         elif extension == "png":
-            if not file_bytes[:8] == _PNG_MAGIC:
+            if file_bytes[:8] != _PNG_MAGIC:
                 logger.warning("upload_validation_fail_magic_png")
-                raise InvalidPDFError("File does not appear to be a valid PNG image.")
+                raise SpoofedExtensionError()
 
     def _step4_check_size(self, file_bytes: bytes) -> None:
         """Step 4: File must not exceed MAX_FILE_SIZE_MB."""

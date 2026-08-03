@@ -5,9 +5,12 @@ Append-only data access for AuditLog records.
 Records are NEVER updated or deleted.
 """
 from __future__ import annotations
+
 import uuid
-from sqlalchemy import select, func
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.logging import get_logger
 from app.models.audit_log import AuditLog
 

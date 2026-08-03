@@ -79,7 +79,7 @@ async def kiosk_simulator():
                 elif msg_type == "DOWNLOAD_URL":
                     job_id = data.get("jobId")
                     file_url = data.get("url")
-                    print(f"⬇️ Received signed file download URL. Simulating file transfer...")
+                    print("⬇️ Received signed file download URL. Simulating file transfer...")
 
                     # Send status: DOWNLOADING
                     await ws.send(json.dumps({
@@ -89,7 +89,7 @@ async def kiosk_simulator():
                     await asyncio.sleep(2)
 
                     # Send status: PRINTING
-                    print(f"🖨️ File transferred to local printer spooler. Printing pages...")
+                    print("🖨️ File transferred to local printer spooler. Printing pages...")
                     await ws.send(json.dumps({
                         "type": "JOB_STATUS",
                         "data": {"jobId": job_id, "status": "PRINTING"}
@@ -97,7 +97,7 @@ async def kiosk_simulator():
                     await asyncio.sleep(3)
 
                     # Send status: JOB_COMPLETED
-                    print(f"✅ Printing complete! Sending JOB_COMPLETED to backend...")
+                    print("✅ Printing complete! Sending JOB_COMPLETED to backend...")
                     await ws.send(json.dumps({
                         "type": "JOB_COMPLETED",
                         "data": {"jobId": job_id}

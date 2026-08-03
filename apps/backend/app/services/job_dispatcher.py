@@ -16,14 +16,11 @@ The dispatcher runs:
 """
 from __future__ import annotations
 
-import uuid
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.repositories.kiosk_repository import KioskRepository
 from app.repositories.print_job_repository import PrintJobRepository
-from app.repositories.uploaded_file_repository import UploadedFileRepository
 from app.websocket.manager import ws_manager
 
 logger = get_logger(__name__)

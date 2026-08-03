@@ -16,7 +16,7 @@ They are not directly triggered by user actions (unlike audit_logs).
 from sqlalchemy import Enum, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database.base import Base, UUIDMixin, TimestampMixin
+from app.database.base import Base, TimestampMixin, UUIDMixin
 
 
 class SystemEvent(Base, UUIDMixin, TimestampMixin):

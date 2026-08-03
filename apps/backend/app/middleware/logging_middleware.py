@@ -64,10 +64,20 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             status_code=status_code,
             duration_ms=duration_ms,
             client_ip=_get_client_ip(request),
-            query_string=str(request.url.query) if request.url.query else None,
+            query_string=_scrub_query_string(request.url.query) if request.url.query else None,
         )
 
         return response
+
+
+def _scrub_query_string(query_string: str) -> str:
+    """Masks sensitive query parameters."""
+    import urllib.parse
+    parsed = urllib.parse.parse_qs(query_string, keep_blank_values=True)
+    for sensitive_key in ("token", "secret", "key"):
+        if sensitive_key in parsed:
+            parsed[sensitive_key] = ["***"]
+    return urllib.parse.urlencode(parsed, doseq=True)
 
 
 def _get_client_ip(request: Request) -> str:

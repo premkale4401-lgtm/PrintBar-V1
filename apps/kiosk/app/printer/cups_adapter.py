@@ -1,4 +1,4 @@
-﻿"""
+"""
 PrintBar Kiosk Agent — CUPS Printer Adapter (Milestone 9)
 
 Submits print jobs to CUPS and monitors their status.
@@ -29,6 +29,17 @@ class CupsAdapter:
     def __init__(self, printer_name: str) -> None:
         self._printer_name = printer_name
         self._conn: Any = None
+        if not self._printer_name:
+            try:
+                conn = self._get_connection()
+                default = conn.getDefault()
+                if not default:
+                    raise RuntimeError("No default printer configured in CUPS.")
+                self._printer_name = default
+                logger.info("using_default_printer", printer=self._printer_name)
+            except Exception as exc:
+                logger.error("failed_to_resolve_default_printer", error=str(exc))
+                raise
 
     def _get_connection(self) -> Any:
         """Returns a CUPS connection, creating one if needed."""
@@ -39,24 +50,34 @@ class CupsAdapter:
             raise RuntimeError("pycups is not installed. Run: pip install pycups")
 
     def get_printer_status(self) -> str:
-        """Returns current printer status string."""
+        """Returns current printer status string strictly mapped to allowed ENUM."""
         try:
             conn = self._get_connection()
             printers = conn.getPrinters()
             if self._printer_name not in printers:
-                return "OFFLINE"
+                return "UNKNOWN"
+                
             state = printers[self._printer_name].get("printer-state", 0)
             state_reasons = printers[self._printer_name].get("printer-state-reasons", [])
-            if "media-empty" in str(state_reasons):
-                return "OUT_OF_PAPER"
-            if "toner-empty" in str(state_reasons) or "marker-supply-empty" in str(state_reasons):
-                return "OUT_OF_TONER"
-            if "media-jam" in str(state_reasons):
-                return "PAPER_JAM"
-            return "READY" if state == 3 else "PRINTING" if state == 4 else "OFFLINE"
+            state_reasons_str = str(state_reasons)
+            
+            if "media-empty" in state_reasons_str:
+                return "PAPER_OUT"
+            if "media-jam" in state_reasons_str or "toner-empty" in state_reasons_str or "marker-supply-empty" in state_reasons_str:
+                return "ERROR"
+            if "paused" in state_reasons_str or "offline" in state_reasons_str or "not-connected" in state_reasons_str:
+                return "OFFLINE"
+                
+            if state == 3:
+                return "READY"
+            elif state == 4:
+                return "PRINTING"
+            elif state == 5:
+                return "STOPPED"
+            return "OFFLINE"
         except Exception as exc:
             logger.error("cups_status_error", error=str(exc))
-            return "OFFLINE"
+            return "UNKNOWN"
 
     def submit_job(
         self,
@@ -97,7 +118,7 @@ class CupsAdapter:
         }
 
         job_id = conn.printFile(self._printer_name, pdf_path, "PrintBar Job", options)
-        logger.info("cups_job_submitted", job_id=job_id, copies=copies, color=color_mode)
+        logger.info("cups_job_submitted", job_id=job_id, printer=self._printer_name, copies=copies, color=color_mode)
         return job_id
 
     def wait_for_completion(self, job_id: int, timeout_sec: int = 300) -> bool:
@@ -117,11 +138,20 @@ class CupsAdapter:
                 state_name = CUPS_JOB_STATES.get(state, "UNKNOWN")
                 logger.debug("cups_job_state", job_id=job_id, state=state_name)
 
-                if state == 9:
+                if state == 9:  # COMPLETED
                     return True
-                if state in (7, 8):
+                if state in (6, 7, 8):  # STOPPED, CANCELED, ABORTED
                     logger.error("cups_job_failed", job_id=job_id, state=state_name)
                     return False
+                    
+                # Also check printer hardware status
+                printer_status = self.get_printer_status()
+                if printer_status in ("PAPER_OUT", "ERROR", "OFFLINE"):
+                    logger.error("cups_job_failed_hardware", job_id=job_id, printer_status=printer_status)
+                    # Cancel the stuck job in CUPS so it doesn't block forever
+                    self.cancel_job(job_id)
+                    return False
+                    
             except Exception as exc:
                 logger.error("cups_poll_error", error=str(exc))
             time.sleep(3)

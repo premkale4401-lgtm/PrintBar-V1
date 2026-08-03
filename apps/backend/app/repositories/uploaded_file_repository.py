@@ -43,6 +43,7 @@ class UploadedFileRepository:
         file_size_bytes: int,
         page_count: int,
         sha256_checksum: str,
+        correlation_id: str = "unknown",
         expires_in_minutes: int = 30,
     ) -> UploadedFile:
         """
@@ -56,6 +57,7 @@ class UploadedFileRepository:
             file_size_bytes:   File size in bytes.
             page_count:        Number of pages.
             sha256_checksum:   SHA-256 hash of file bytes.
+            correlation_id:    Trace ID.
             expires_in_minutes: Minutes until auto-deletion if not paid.
 
         Returns:
@@ -75,6 +77,7 @@ class UploadedFileRepository:
             is_validated=True,
             is_deleted=False,
             expires_at=expires_at,
+            correlation_id=correlation_id,
         )
         self._db.add(uploaded_file)
         await self._db.flush()  # Get the generated ID without committing.
@@ -121,6 +124,29 @@ class UploadedFileRepository:
         result = await self._db.execute(
             select(UploadedFile).where(
                 UploadedFile.id == file_id,
+                UploadedFile.session_id == session_id,
+                UploadedFile.is_deleted.is_(False),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_sha256_and_session(
+        self, sha256_checksum: str, session_id: str
+    ) -> UploadedFile | None:
+        """
+        Retrieves an active UploadedFile by its SHA-256 checksum for a session.
+        Used for idempotency to prevent duplicate uploads.
+
+        Args:
+            sha256_checksum: SHA-256 hash of the file.
+            session_id:      Guest session ID.
+
+        Returns:
+            UploadedFile instance or None.
+        """
+        result = await self._db.execute(
+            select(UploadedFile).where(
+                UploadedFile.sha256_checksum == sha256_checksum,
                 UploadedFile.session_id == session_id,
                 UploadedFile.is_deleted.is_(False),
             )

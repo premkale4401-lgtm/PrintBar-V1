@@ -14,7 +14,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.exceptions.base import InvalidJobTransitionError, JobNotFoundError
+from app.exceptions.base import InvalidStateTransition, JobNotFoundError
 from app.models.print_job import PrintJob
 
 logger = get_logger(__name__)
@@ -67,6 +67,7 @@ class PrintJobRepository:
         gst_inr: object,
         total_inr: object,
         idempotency_key: str,
+        correlation_id: str = "unknown",
     ) -> PrintJob:
         """Creates a new PrintJob in UPLOADED status."""
         job = PrintJob(
@@ -84,6 +85,7 @@ class PrintJobRepository:
             gst_inr=gst_inr,  # type: ignore[arg-type]
             total_inr=total_inr,  # type: ignore[arg-type]
             idempotency_key=idempotency_key,
+            correlation_id=correlation_id,
             status="UPLOADED",
         )
         self._db.add(job)
@@ -133,7 +135,7 @@ class PrintJobRepository:
         """Returns all jobs in active non-terminal statuses."""
         result = await self._db.execute(
             select(PrintJob)
-            .where(PrintJob.status.in_(["QUEUED", "ASSIGNED", "DOWNLOADING", "READY_TO_PRINT", "PRINTING"]))
+            .where(PrintJob.status.in_(["PAYMENT_PENDING", "QUEUED", "ASSIGNED", "DOWNLOADING", "READY_TO_PRINT", "PRINTING"]))
             .order_by(PrintJob.created_at.asc())
         )
         return list(result.scalars().all())
@@ -154,7 +156,7 @@ class PrintJobRepository:
 
         Raises:
             JobNotFoundError:        If the job does not exist.
-            InvalidJobTransitionError: If the transition is not allowed.
+            InvalidStateTransition: If the transition is not allowed.
         """
         job = await self.get_by_id(job_id)
         if job is None:
@@ -162,7 +164,7 @@ class PrintJobRepository:
 
         allowed = VALID_TRANSITIONS.get(job.status, set())
         if to_status not in allowed:
-            raise InvalidJobTransitionError(job.status, to_status)
+            raise InvalidStateTransition(job.status, to_status)
 
         values: dict = {"status": to_status}
         values.update(extra_fields)
@@ -172,6 +174,20 @@ class PrintJobRepository:
             .where(PrintJob.id == job_id)
             .values(**values)
         )
+
+        # Insert audit log for the transition.
+        import json
+        from app.models.audit_log import AuditLog
+        audit_details = json.dumps({"from": job.status, "to": to_status})
+        audit_log = AuditLog(
+            actor_type="SYSTEM",
+            action="JOB_STATE_CHANGED",
+            entity_type="PrintJob",
+            entity_id=str(job.id),
+            print_job_id=job.id,
+            details=audit_details,
+        )
+        self._db.add(audit_log)
 
         # Refresh the instance.
         await self._db.refresh(job)

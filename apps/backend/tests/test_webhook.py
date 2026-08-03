@@ -2,11 +2,10 @@
 Tests for payment webhook handling.
 """
 from __future__ import annotations
-import hmac
-import hashlib
+
 import json
+
 import pytest
-from unittest.mock import patch
 
 
 @pytest.mark.asyncio

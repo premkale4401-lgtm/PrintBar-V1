@@ -105,7 +105,7 @@ async def calculate_price(
             duplex=duplex,
             pages_per_sheet=pages_per_sheet,
         )
-    except RuntimeError as exc:
+    except RuntimeError:
         return {
             "success": False,
             "error": {

@@ -78,6 +78,12 @@ export const StepUpload: React.FC<StepUploadProps> = ({
       return;
     }
 
+    const emptyFiles = fileArray.filter(f => f.size === 0);
+    if (emptyFiles.length > 0) {
+      setErrorMessage(`Cannot upload empty files. The following file(s) are empty: ${emptyFiles.map(f => f.name).join(', ')}.`);
+      return;
+    }
+
     const oversizedFiles = fileArray.filter(f => f.size > MAX_FILE_SIZE);
     if (oversizedFiles.length > 0) {
       setErrorMessage(
@@ -97,6 +103,24 @@ export const StepUpload: React.FC<StepUploadProps> = ({
       const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext);
       const isPdf = ext === 'pdf';
       const isDoc = ['doc', 'docx'].includes(ext);
+
+      // Verify PDF header locally
+      if (isPdf) {
+        try {
+          const slice = file.slice(0, 5);
+          const headerBuffer = await slice.arrayBuffer();
+          const headerString = new TextDecoder().decode(headerBuffer);
+          if (headerString !== '%PDF-') {
+            setErrorMessage(`The file "${file.name}" is corrupted or not a valid PDF document.`);
+            setUploadingFilesCount(0);
+            return;
+          }
+        } catch (err) {
+          setErrorMessage(`Failed to read "${file.name}". The file might be corrupted.`);
+          setUploadingFilesCount(0);
+          return;
+        }
+      }
 
       // For PDFs: get page count from pdfjs for the preview, then upload to backend.
       let localPageCount = isImage ? 1 : 1;
@@ -225,7 +249,8 @@ export const StepUpload: React.FC<StepUploadProps> = ({
             multiple
             accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png"
             onChange={handleNativeFileInput}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+            disabled={isUploading}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
           />
 
           <div className="max-w-md mx-auto flex flex-col items-center">
@@ -245,12 +270,13 @@ export const StepUpload: React.FC<StepUploadProps> = ({
 
             {/* Buttons Row */}
             <div className="relative z-20 flex flex-wrap items-center justify-center gap-3">
-              <label className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm px-5 py-2.5 rounded-xl flex items-center gap-2 cursor-pointer transition-colors shadow-xs">
+              <label className={`bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm px-5 py-2.5 rounded-xl flex items-center gap-2 transition-colors shadow-xs ${isUploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                 <Upload className="w-4 h-4" />
                 <span>Browse Multiple Files</span>
                 <input
                   type="file"
                   multiple
+                  disabled={isUploading}
                   accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png"
                   onChange={handleNativeFileInput}
                   className="hidden"
@@ -298,12 +324,13 @@ export const StepUpload: React.FC<StepUploadProps> = ({
 
             <div className="flex items-center gap-3">
               {/* + Add More Files Button */}
-              <label className="text-xs font-bold text-blue-600 hover:text-blue-700 cursor-pointer inline-flex items-center gap-1">
+              <label className={`text-xs font-bold transition-colors inline-flex items-center gap-1 ${isUploading ? 'text-slate-400 cursor-not-allowed' : 'text-blue-600 hover:text-blue-700 cursor-pointer'}`}>
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add More Files</span>
                 <input
                   type="file"
                   multiple
+                  disabled={isUploading}
                   accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png"
                   onChange={handleNativeFileInput}
                   className="hidden"
@@ -315,7 +342,8 @@ export const StepUpload: React.FC<StepUploadProps> = ({
               {/* Clear All Button */}
               <button
                 onClick={onRemoveFile}
-                className="text-xs font-bold text-slate-400 hover:text-red-600 cursor-pointer"
+                disabled={isUploading}
+                className="text-xs font-bold text-slate-400 hover:text-red-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Clear All
               </button>
@@ -350,7 +378,8 @@ export const StepUpload: React.FC<StepUploadProps> = ({
 
                   <button
                     onClick={() => handleRemoveSingleItem(file.id)}
-                    className="text-slate-400 hover:text-red-500 p-1.5 transition-colors cursor-pointer rounded-lg hover:bg-slate-100"
+                    disabled={isUploading}
+                    className="text-slate-400 hover:text-red-500 p-1.5 transition-colors cursor-pointer rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Remove file from list"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -363,7 +392,7 @@ export const StepUpload: React.FC<StepUploadProps> = ({
 
         {/* Error Notification Banner if invalid file uploaded */}
         {errorMessage && (
-          <div className="bg-red-50/80 border border-red-200/80 rounded-2xl p-4 flex items-start justify-between shadow-xs mt-3">
+          <div className="bg-red-50/80 border border-red-200/80 rounded-2xl p-4 flex items-start justify-between shadow-xs mt-3" aria-live="polite">
             <div className="flex items-start gap-3.5">
               <div className="w-8 h-8 rounded-full bg-red-100 text-red-500 flex items-center justify-center shrink-0 mt-0.5">
                 <AlertCircle className="w-4 h-4 stroke-[2.2]" />
@@ -409,9 +438,9 @@ export const StepUpload: React.FC<StepUploadProps> = ({
         </button>
 
         <button
-          disabled={activeFilesList.length === 0}
+          disabled={activeFilesList.length === 0 || isUploading}
           onClick={() => {
-            if (activeFilesList.length > 0) {
+            if (activeFilesList.length > 0 && !isUploading) {
               onNext();
             }
           }}

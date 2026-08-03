@@ -10,7 +10,6 @@ File size limits are enforced at both Nginx and FastAPI levels.
 Business logic lives in UploadService — this layer only handles HTTP concerns.
 """
 
-from __future__ import annotations
 
 import uuid
 
@@ -20,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.rate_limit import limiter
 from app.database.session import get_db
 from app.dependencies import get_current_guest_session
 from app.exceptions.base import UploadNotFoundError
@@ -45,6 +45,7 @@ _MAX_UPLOAD_BYTES = settings.max_file_size_bytes
         "Requires a valid guest session token."
     ),
 )
+@limiter.limit("5/10minutes")
 async def upload_file(
     request: Request,
     file: UploadFile = File(..., description="PDF file to upload"),
@@ -90,12 +91,19 @@ async def upload_file(
     )
 
     service = UploadService(db)
+
+    correlation_id = getattr(request.state, "correlation_id", "unknown")
+
     uploaded_file = await service.upload_pdf(
         session_id=session_id,
-        filename=file.filename or "upload.pdf",
+        filename=file.filename or "unknown.pdf",
         content_type=file.content_type or "application/pdf",
         file_bytes=file_bytes,
+        correlation_id=correlation_id,
     )
+
+    from app.core.metrics import UPLOADS_TOTAL
+    UPLOADS_TOTAL.inc()
 
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,

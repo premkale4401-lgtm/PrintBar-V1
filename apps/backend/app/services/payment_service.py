@@ -28,8 +28,6 @@ from __future__ import annotations
 
 import secrets
 import uuid
-from decimal import Decimal
-from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,7 +38,6 @@ from app.exceptions.base import (
     DuplicatePaymentError,
     InvalidPaymentSignatureError,
     JobNotFoundError,
-    PaymentAmountMismatchError,
     PaymentGatewayError,
     PaymentOrderNotFoundError,
 )
@@ -91,6 +88,7 @@ class PaymentService:
         page_range: str | None,
         orientation: str,
         idempotency_key: str | None = None,
+        correlation_id: str = "unknown",
     ) -> dict:
         """
         Creates a print job + payment order and returns provider-agnostic order details.
@@ -119,6 +117,7 @@ class PaymentService:
                     "payment_create_order_idempotent",
                     job_id=str(existing_job.id),
                     idempotency_key=idem_key,
+                    correlation_id=correlation_id,
                 )
                 # Use provider-agnostic conversion: amount_inr * 100 = paise.
                 amount_paise = int(existing_payment.amount_inr * 100)
@@ -152,69 +151,78 @@ class PaymentService:
             pages_per_sheet=pages_per_sheet,
         )
 
-        # ── Create PrintJob ───────────────────────────────────────────────────
-        job = await self._job_repo.create(
-            session_id=session_id,
-            uploaded_file_id=file_id,
-            color_mode=color_mode,
-            paper_size=paper_size,
-            copies=copies,
-            duplex=duplex,
-            pages_selected=pages_selected,
-            pages_per_sheet=pages_per_sheet,
-            page_range=page_range,
-            orientation=orientation,
-            subtotal_inr=calc.subtotal_inr,
-            gst_inr=calc.gst_inr,
-            total_inr=calc.total_inr,
-            idempotency_key=idem_key,
-        )
+        try:
+            async with self._db.begin_nested():
+                # ── Create PrintJob ───────────────────────────────────────────────────
+                job = await self._job_repo.create(
+                    session_id=session_id,
+                    uploaded_file_id=file_id,
+                    color_mode=color_mode,
+                    paper_size=paper_size,
+                    copies=copies,
+                    duplex=duplex,
+                    pages_selected=pages_selected,
+                    pages_per_sheet=pages_per_sheet,
+                    page_range=page_range,
+                    orientation=orientation,
+                    subtotal_inr=calc.subtotal_inr,
+                    gst_inr=calc.gst_inr,
+                    total_inr=calc.total_inr,
+                    idempotency_key=idem_key,
+                    correlation_id=correlation_id,
+                )
 
-        # State transitions: UPLOADED → VALIDATED → PAYMENT_PENDING
-        await self._job_repo.transition(job.id, "VALIDATED")
-        await self._job_repo.transition(job.id, "PAYMENT_PENDING")
+                # State transitions: UPLOADED → VALIDATED → PAYMENT_PENDING
+                await self._job_repo.transition(job.id, "VALIDATED")
+                await self._job_repo.transition(job.id, "PAYMENT_PENDING")
 
-        # ── Create Payment record ─────────────────────────────────────────────
-        payment = await self._payment_repo.create_payment(
-            print_job_id=job.id,
-            amount_inr=calc.total_inr,
-            idempotency_key=f"pay_{idem_key}",
-        )
+                # ── Create Payment record ─────────────────────────────────────────────
+                payment = await self._payment_repo.create_payment(
+                    print_job_id=job.id,
+                    amount_inr=calc.total_inr,
+                    idempotency_key=f"pay_{idem_key}",
+                )
 
-        # ── Create Gateway Order ──────────────────────────────────────────────
-        receipt_id = str(job.id)[:40]
-        order_result = await self._provider.create_order(
-            amount_inr=calc.total_inr,
-            receipt_id=receipt_id,
-            notes={
-                "job_id": str(job.id),
-                "payment_id": str(payment.id),
-                "session_id": session_id[:8],  # Truncated for privacy.
-            },
-        )
+            # ── Create Gateway Order (External) ──────────────────────────────────
+            receipt_id = str(job.id)[:40]
+            order_result = await self._provider.create_order(
+                amount_inr=calc.total_inr,
+                receipt_id=receipt_id,
+                notes={
+                    "job_id": str(job.id),
+                    "payment_id": str(payment.id),
+                    "session_id": session_id[:8],  # Truncated for privacy.
+                },
+            )
 
-        # Store gateway order ID.
-        await self._payment_repo.update_gateway_order_id(
-            payment.id, order_result.gateway_order_id
-        )
+            async with self._db.begin_nested():
+                # Store gateway order ID.
+                await self._payment_repo.update_gateway_order_id(
+                    payment.id, order_result.gateway_order_id
+                )
 
-        # Update gateway field — use the active provider's name.
-        from sqlalchemy import update as sql_update
-        from app.models.payment import Payment as PaymentModel
-        gateway_name = "MOCK" if settings.is_mock_payment else PAYMENT_GATEWAY_RAZORPAY
-        await self._db.execute(
-            sql_update(PaymentModel)
-            .where(PaymentModel.id == payment.id)
-            .values(gateway=gateway_name)
-        )
+                # Update gateway field — use the active provider's name.
+                from sqlalchemy import update as sql_update
+                from app.models.payment import Payment as PaymentModel
+                gateway_name = "MOCK" if settings.is_mock_payment else PAYMENT_GATEWAY_RAZORPAY
+                await self._db.execute(
+                    sql_update(PaymentModel)
+                    .where(PaymentModel.id == payment.id)
+                    .values(gateway=gateway_name)
+                )
 
-        logger.info(
-            "payment_order_created",
-            job_id=str(job.id),
-            payment_id=str(payment.id),
-            gateway_order_id=order_result.gateway_order_id,
-            total_inr=str(calc.total_inr),
-        )
+            logger.info(
+                "payment_order_created",
+                job_id=str(job.id),
+                payment_id=str(payment.id),
+                gateway_order_id=order_result.gateway_order_id,
+                total_inr=str(calc.total_inr),
+            )
+
+            await self._db.commit()
+        except Exception:
+            await self._db.rollback()
+            raise
 
         return {
             "jobId": str(job.id),
@@ -264,7 +272,6 @@ class PaymentService:
         Raises:
             PaymentOrderNotFoundError:   No payment found for this job.
             InvalidPaymentSignatureError: Signature verification failed.
-            DuplicatePaymentError:        Payment already processed (idempotent).
         """
         job: PrintJob | None = await self._job_repo.get_by_id(job_id)
         payment: Payment | None = None
@@ -287,6 +294,7 @@ class PaymentService:
             signature_valid=False,
             amount_inr=payment.amount_inr if payment else None,
             status="PENDING_VERIFY",
+            gateway_event_id=f"verify_{razorpay_payment_id}",
         )
 
         if payment is None or job is None:
@@ -298,6 +306,7 @@ class PaymentService:
             await self._payment_repo.mark_webhook_processed(
                 webhook.id, error="PAYMENT_NOT_FOUND"
             )
+            await self._db.commit()
             raise PaymentOrderNotFoundError()
 
         # Validate gateway_order_id matches stored record.
@@ -311,14 +320,17 @@ class PaymentService:
             await self._payment_repo.mark_webhook_processed(
                 webhook.id, error="ORDER_ID_MISMATCH"
             )
+            await self._db.commit()
             raise InvalidPaymentSignatureError()
 
         # Duplicate check — idempotent.
         if payment.status == "SUCCESS":
             await self._payment_repo.mark_webhook_processed(
-                webhook.id, error="DUPLICATE_VERIFY"
+                webhook.id, error="DUPLICATE_VERIFY_IGNORED"
             )
-            raise DuplicatePaymentError()
+            await self._db.commit()
+            logger.info("payment_already_success_returning_gracefully", job_id=str(job_id))
+            return {"jobId": str(job.id), "status": "QUEUED"}
 
         # Verify HMAC-SHA256 signature (constant-time).
         sig_valid = self._provider.verify_signature(
@@ -337,24 +349,40 @@ class PaymentService:
             await self._payment_repo.mark_webhook_processed(
                 webhook.id, error="SIGNATURE_INVALID"
             )
+            await self._db.commit()
             raise InvalidPaymentSignatureError()
 
-        # Mark payment VERIFYING → SUCCESS.
-        await self._payment_repo.mark_verifying(payment.id)
-        await self._payment_repo.mark_success(
-            payment_id=payment.id,
-            gateway_txn_id=razorpay_payment_id,
-            payment_mode="RAZORPAY_CALLBACK",
-            vpa=None,
-            bank_ref=None,
-            signature_prefix=razorpay_signature[:16] + "...",
-        )
+        try:
+            async with self._db.begin_nested():
+                # Mark payment VERIFYING → SUCCESS.
+                await self._payment_repo.mark_verifying(payment.id)
+                await self._payment_repo.mark_success(
+                    payment_id=payment.id,
+                    gateway_txn_id=razorpay_payment_id,
+                    payment_mode="RAZORPAY_CALLBACK",
+                    vpa=None,
+                    bank_ref=None,
+                    signature_prefix=razorpay_signature[:16] + "...",
+                )
 
-        # Transition job state machine.
-        await self._job_repo.transition(job.id, "PAYMENT_SUCCESS")
-        await self._job_repo.transition(job.id, "QUEUED")
+                # Transition job state machine.
+                await self._job_repo.transition(job.id, "PAYMENT_SUCCESS")
+                await self._job_repo.transition(job.id, "QUEUED")
 
-        await self._payment_repo.mark_webhook_processed(webhook.id)
+                await self._payment_repo.mark_webhook_processed(webhook.id)
+
+            await self._db.commit()
+            
+            # Receipt generation is external to the main transaction to ensure payment success is preserved even if receipt generation fails.
+            try:
+                # _generate_receipt(payment.id) -> this would create a PDF and upload to Supabase
+                logger.info("mock_receipt_generated", payment_id=str(payment.id))
+            except Exception as e:
+                logger.error("receipt_generation_failed", error=str(e), payment_id=str(payment.id))
+                
+        except Exception:
+            await self._db.rollback()
+            raise
 
         logger.info(
             "payment_callback_verified_and_queued",
@@ -391,7 +419,7 @@ class PaymentService:
         Processes an incoming Razorpay webhook.
 
         SECURITY: Signature is verified on raw bytes BEFORE JSON parsing.
-        IDEMPOTENCY: Duplicate webhooks (same gateway_txn_id) are silently ignored.
+        IDEMPOTENCY: Duplicate webhooks (same gateway_event_id) are silently ignored.
 
         Steps:
             1. Verify HMAC-SHA256 signature (constant-time, raw bytes).
@@ -429,14 +457,14 @@ class PaymentService:
             return {"processed": False, "reason": "non_success_event"}
 
         # Step 2: Idempotency — reject duplicate webhooks.
-        if webhook_result.gateway_txn_id:
+        if webhook_result.gateway_event_id:
             is_duplicate = await self._payment_repo.is_webhook_duplicate(
-                webhook_result.gateway_txn_id
+                webhook_result.gateway_event_id
             )
             if is_duplicate:
                 logger.info(
                     "webhook_duplicate_ignored",
-                    gateway_txn_id=webhook_result.gateway_txn_id,
+                    gateway_event_id=webhook_result.gateway_event_id,
                 )
                 return {"processed": False, "reason": "duplicate"}
 
@@ -460,7 +488,9 @@ class PaymentService:
                 signature_valid=True,
                 amount_inr=None,
                 status="ORDER_NOT_FOUND",
+                gateway_event_id=webhook_result.gateway_event_id,
             )
+            await self._db.commit()
             return {"processed": False, "reason": "order_not_found"}
 
         # Step 4: Store raw webhook (always, before processing).
@@ -475,6 +505,7 @@ class PaymentService:
             signature_valid=True,
             amount_inr=amount_inr_from_webhook,
             status="SUCCESS",
+            gateway_event_id=webhook_result.gateway_event_id,
         )
 
         # Already processed by callback verification?
@@ -485,6 +516,7 @@ class PaymentService:
                 gateway_txn_id=webhook_result.gateway_txn_id,
             )
             await self._payment_repo.mark_webhook_processed(webhook_record.id)
+            await self._db.commit()
             return {"processed": False, "reason": "already_success"}
 
         # Step 5: Verify amount matches stored record.
@@ -502,38 +534,46 @@ class PaymentService:
             await self._payment_repo.mark_webhook_processed(
                 webhook_record.id, error="AMOUNT_MISMATCH"
             )
+            await self._db.commit()
             return {"processed": False, "reason": "amount_mismatch"}
 
-        # Step 6: Mark payment VERIFYING → SUCCESS.
-        await self._payment_repo.mark_verifying(payment.id)
-        await self._payment_repo.mark_success(
-            payment_id=payment.id,
-            gateway_txn_id=webhook_result.gateway_txn_id,
-            payment_mode=webhook_result.payment_mode,
-            vpa=webhook_result.vpa,
-            bank_ref=webhook_result.bank_ref,
-        )
-
-        # Step 7: Look up and transition job.
-        job = await self._job_repo.get_by_id(payment.print_job_id)
-        if job:
-            # Transition to PAYMENT_SUCCESS only if currently in PAYMENT_PENDING.
-            if job.status == "PAYMENT_PENDING":
-                await self._job_repo.transition(job.id, "PAYMENT_SUCCESS")
-                await self._job_repo.transition(job.id, "QUEUED")
-                logger.info(
-                    "webhook_job_queued",
-                    job_id=str(job.id),
-                    payment_id=str(payment.id),
-                )
-            else:
-                logger.info(
-                    "webhook_job_already_progressed",
-                    job_id=str(job.id),
-                    job_status=job.status,
+        try:
+            async with self._db.begin_nested():
+                # Step 6: Mark payment VERIFYING → SUCCESS.
+                await self._payment_repo.mark_verifying(payment.id)
+                await self._payment_repo.mark_success(
+                    payment_id=payment.id,
+                    gateway_txn_id=webhook_result.gateway_txn_id,
+                    payment_mode=webhook_result.payment_mode,
+                    vpa=webhook_result.vpa,
+                    bank_ref=webhook_result.bank_ref,
                 )
 
-        await self._payment_repo.mark_webhook_processed(webhook_record.id)
+                # Step 7: Look up and transition job.
+                job = await self._job_repo.get_by_id(payment.print_job_id)
+                if job:
+                    # Transition to PAYMENT_SUCCESS only if currently in PAYMENT_PENDING.
+                    if job.status == "PAYMENT_PENDING":
+                        await self._job_repo.transition(job.id, "PAYMENT_SUCCESS")
+                        await self._job_repo.transition(job.id, "QUEUED")
+                        logger.info(
+                            "webhook_job_queued",
+                            job_id=str(job.id),
+                            payment_id=str(payment.id),
+                        )
+                    else:
+                        logger.info(
+                            "webhook_job_already_progressed",
+                            job_id=str(job.id),
+                            job_status=job.status,
+                        )
+
+                await self._payment_repo.mark_webhook_processed(webhook_record.id)
+
+            await self._db.commit()
+        except Exception:
+            await self._db.rollback()
+            raise
 
         logger.info(
             "webhook_processed_successfully",
@@ -566,14 +606,21 @@ class PaymentService:
         if not job:
             raise JobNotFoundError()
 
-        payment = await self._payment_repo.get_by_print_job_id(job_id)
-        if payment and payment.status not in ("SUCCESS", "CANCELLED", "REFUNDED"):
-            await self._payment_repo.mark_cancelled(payment.id)
-            logger.info(
-                "payment_cancelled_by_user",
-                job_id=str(job_id),
-                payment_id=str(payment.id),
-            )
+        try:
+            payment = await self._payment_repo.get_by_print_job_id(job_id)
+            if payment and payment.status not in ("SUCCESS", "CANCELLED", "REFUNDED"):
+                async with self._db.begin_nested():
+                    await self._payment_repo.mark_cancelled(payment.id)
+                logger.info(
+                    "payment_cancelled_by_user",
+                    job_id=str(job_id),
+                    payment_id=str(payment.id),
+                )
+            
+            await self._db.commit()
+        except Exception:
+            await self._db.rollback()
+            raise
 
     # ─── Status ───────────────────────────────────────────────────────────────
 

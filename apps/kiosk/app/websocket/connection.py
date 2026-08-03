@@ -1,4 +1,4 @@
-﻿"""
+"""
 PrintBar Kiosk Agent — WebSocket Connection Manager
 
 Maintains a persistent, auto-reconnecting WebSocket connection to the backend.
@@ -71,7 +71,7 @@ class KioskWebSocketConnection:
             if self._running:
                 logger.info(f"ws_reconnecting_in={delay:.1f}s")
                 await asyncio.sleep(delay)
-                delay = min(delay * 2, 60.0)
+                delay = min(delay * 2, 30.0)
 
     async def send(self, message: dict) -> None:
         """Sends a JSON message over the WebSocket."""
@@ -84,6 +84,18 @@ class KioskWebSocketConnection:
         if self._ws:
             await self._ws.close()
 
+    async def force_disconnect(self) -> None:
+        """
+        Forces the WebSocket to disconnect and trigger a reconnect.
+        Useful when an external subsystem (like heartbeat) detects an unresponsive connection.
+        """
+        if self._ws and self._connected:
+            logger.warning("ws_force_disconnect_requested")
+            await self._ws.close()
+            # self._ws.close() will cause `async for raw_msg in ws:` to exit with ConnectionClosed
+            # and the reconnect loop will automatically take over since self._running is still True.
+
     @property
     def is_connected(self) -> bool:
         return self._connected
+

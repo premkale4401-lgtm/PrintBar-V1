@@ -73,7 +73,7 @@ async def get_current_guest_session(
 async def get_current_admin(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     db: AsyncSession = Depends(get_db),
-) -> "User":  # noqa: F821
+) -> User:  # noqa: F821
     """
     FastAPI dependency that validates an admin JWT and returns the User.
 
@@ -87,10 +87,12 @@ async def get_current_admin(
         HTTPException 403: Token valid but user lacks admin role.
         HTTPException 404: User no longer exists in the database.
     """
+    import uuid
+
+    from sqlalchemy import select
+
     from app.core.security import jwt_handler
     from app.models.user import User
-    from sqlalchemy import select
-    import uuid
 
     if credentials is None:
         raise HTTPException(
@@ -137,8 +139,8 @@ async def get_current_admin(
 
 
 async def require_super_admin(
-    current_user: "User" = Depends(get_current_admin),  # noqa: F821
-) -> "User":  # noqa: F821
+    current_user: User = Depends(get_current_admin),  # noqa: F821
+) -> User:  # noqa: F821
     """
     FastAPI dependency that further restricts to SUPER_ADMIN only.
 

@@ -11,18 +11,16 @@ Authentication:
     The raw API key is shown once at registration and then discarded.
 """
 
-import uuid
 
-from sqlalchemy import Boolean, Enum, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, Enum, Float, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.constants import (
+    KIOSK_STATUS_ERROR,
+    KIOSK_STATUS_MAINTENANCE,
     KIOSK_STATUS_OFFLINE,
     KIOSK_STATUS_ONLINE,
-    KIOSK_STATUS_MAINTENANCE,
     KIOSK_STATUS_PRINTING,
-    KIOSK_STATUS_ERROR,
 )
 from app.database.base import PrintBarBase
 

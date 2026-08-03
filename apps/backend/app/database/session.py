@@ -82,7 +82,6 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     session: AsyncSession = AsyncSessionFactory()
     try:
         yield session
-        await session.commit()
     except Exception:
         await session.rollback()
         raise
@@ -100,10 +99,16 @@ async def check_database_connectivity() -> bool:
         True if the database responds, False on error.
     """
     try:
-        from sqlalchemy import text
+        from sqlalchemy import select, text
+        from app.database.base import Base
 
         async with AsyncSessionFactory() as session:
             await session.execute(text("SELECT 1"))
+
+            # Verify that all required schema objects (tables) are present.
+            for table in Base.metadata.sorted_tables:
+                await session.execute(select(1).select_from(table).limit(1))
+
         return True
     except Exception as exc:
         logger.error("database_connectivity_failed", error=str(exc))

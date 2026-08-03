@@ -19,6 +19,7 @@ alembic==1.14.0
 pydantic==2.10.3
 pydantic-settings==2.7.0
 email-validator==2.2.0
+slowapi==0.1.9
 
 # ─── Security ─────────────────────────────────────────────────────────────────
 # python-jose: use cryptography extra for RSA support
@@ -51,3 +52,4 @@ razorpay==1.4.2
 
 # ─── Utilities ────────────────────────────────────────────────────────────────
 python-dotenv==1.0.1
+prometheus-client==0.20.0

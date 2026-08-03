@@ -113,6 +113,8 @@ def configure_logging() -> None:
     handler.setFormatter(formatter)
 
     root_logger = logging.getLogger()
+    if root_logger.handlers:
+        root_logger.handlers.clear()
     root_logger.addHandler(handler)
     root_logger.setLevel(logging.DEBUG if settings.DEBUG else logging.INFO)
 

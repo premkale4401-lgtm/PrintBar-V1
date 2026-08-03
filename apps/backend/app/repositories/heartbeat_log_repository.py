@@ -5,10 +5,13 @@ Data access for HeartbeatLog records.
 Auto-cleanup removes entries older than 30 days.
 """
 from __future__ import annotations
+
 import uuid
 from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.logging import get_logger
 from app.models.heartbeat_log import HeartbeatLog
 

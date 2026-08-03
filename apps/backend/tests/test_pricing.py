@@ -7,12 +7,12 @@ for the _compute path).
 from __future__ import annotations
 
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.models.pricing_rule import PricingRule
-from app.services.pricing_service import PricingService, MINIMUM_TOTAL_INR
+from app.services.pricing_service import MINIMUM_TOTAL_INR, PricingService
 
 
 def _make_rule(

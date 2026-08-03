@@ -27,9 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
-from typing import Any
 
-import structlog
 from fastapi import WebSocket
 
 from app.core.logging import get_logger

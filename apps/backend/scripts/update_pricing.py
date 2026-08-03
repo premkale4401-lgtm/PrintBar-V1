@@ -17,11 +17,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from decimal import Decimal
+
 from sqlalchemy import select
 
+from app.core.logging import configure_logging, get_logger
 from app.database.session import AsyncSessionFactory
 from app.models.pricing_rule import PricingRule
-from app.core.logging import configure_logging, get_logger
 
 configure_logging()
 logger = get_logger(__name__)

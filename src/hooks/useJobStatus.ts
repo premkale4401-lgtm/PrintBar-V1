@@ -35,6 +35,10 @@ export interface JobStatusState {
   error: string | null;
 }
 
+interface UseJobStatusReturn extends JobStatusState {
+  retryConnection: () => void;
+}
+
 interface UseJobStatusOptions {
   jobId: string | null;
   sessionId: string | null;
@@ -47,7 +51,7 @@ export function useJobStatus({
   jobId,
   sessionId,
   enabled = true,
-}: UseJobStatusOptions): JobStatusState {
+}: UseJobStatusOptions): UseJobStatusReturn {
   const [state, setState] = useState<JobStatusState>({
     jobStatus: null,
     paymentStatus: null,
@@ -64,6 +68,8 @@ export function useJobStatus({
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wsFailed = useRef(false);
 
+  const pollErrorCountRef = useRef(0);
+
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current !== null) {
       clearInterval(pollTimerRef.current);
@@ -75,16 +81,19 @@ export function useJobStatus({
   const startPolling = useCallback(() => {
     if (!jobId || pollTimerRef.current !== null) return;
 
-    setState((prev) => ({ ...prev, isPolling: true }));
+    setState((prev) => ({ ...prev, isPolling: true, error: null }));
+    pollErrorCountRef.current = 0;
 
     const poll = async () => {
       if (!jobId) return;
       try {
         const status: PaymentStatus = await paymentService.getPaymentStatus(jobId);
+        pollErrorCountRef.current = 0; // reset on success
         setState((prev) => ({
           ...prev,
           jobStatus: status.jobStatus as JobProgressStatus,
           paymentStatus: status.paymentStatus,
+          error: null,
         }));
 
         // Stop polling once terminal state is reached.
@@ -92,13 +101,28 @@ export function useJobStatus({
           stopPolling();
         }
       } catch {
-        // Non-fatal — keep polling.
+        pollErrorCountRef.current += 1;
+        if (pollErrorCountRef.current >= 5) {
+          stopPolling();
+          setState((prev) => ({
+            ...prev,
+            error: 'Connection to server lost. Please retry or contact support.',
+            isPolling: false,
+            wsConnected: false,
+          }));
+        }
       }
     };
 
     poll();
     pollTimerRef.current = setInterval(poll, POLL_INTERVAL_MS);
   }, [jobId, stopPolling]);
+
+  const retryConnection = useCallback(() => {
+    if (!wsRef.current?.isConnected()) {
+      startPolling();
+    }
+  }, [startPolling]);
 
   const handleWsEvent = useCallback((event: WsJobEvent) => {
     setState((prev) => {
@@ -190,5 +214,5 @@ export function useJobStatus({
     };
   }, [enabled, jobId, sessionId, handleWsEvent, startPolling, stopPolling]);
 
-  return state;
+  return { ...state, retryConnection };
 }

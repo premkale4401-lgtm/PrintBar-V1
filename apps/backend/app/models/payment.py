@@ -18,12 +18,14 @@ Security:
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.constants import (
+    DEFAULT_CURRENCY,
     PAYMENT_GATEWAY_RAZORPAY,
+    PAYMENT_STATUS_CANCELLED,
     PAYMENT_STATUS_CREATED,
     PAYMENT_STATUS_EXPIRED,
     PAYMENT_STATUS_FAILED,
@@ -31,9 +33,7 @@ from app.core.constants import (
     PAYMENT_STATUS_PROCESSING,
     PAYMENT_STATUS_REFUNDED,
     PAYMENT_STATUS_SUCCESS,
-    PAYMENT_STATUS_CANCELLED,
     PAYMENT_STATUS_VERIFYING,
-    DEFAULT_CURRENCY,
 )
 from app.database.base import PrintBarBase
 

@@ -15,7 +15,6 @@ import pytest
 
 from app.storage.service import StorageService
 
-
 # ─── Static Method Tests ──────────────────────────────────────────────────────
 
 def test_compute_sha256_returns_hex_string():
@@ -83,7 +82,6 @@ async def test_upload_file_success_first_attempt():
 @pytest.mark.asyncio
 async def test_upload_file_raises_on_permanent_4xx():
     """upload_file must raise StorageError immediately on a 4xx response (no retry)."""
-    import asyncio
     from app.exceptions.base import StorageError
 
     mock_response = MagicMock()

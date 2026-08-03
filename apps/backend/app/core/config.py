@@ -84,11 +84,11 @@ class Settings(BaseSettings):
 
     # ─── Payment Provider ──────────────────────────────────────────────────────
     # Controls which payment gateway is active.
-    # "mock"     — No real gateway. Use POST /payments/dev/complete to complete payments.
-    #              Safe for development and CI without any gateway credentials.
-    # "razorpay" — Razorpay gateway. Requires RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.
-    # "easebuzz" — Easebuzz gateway (legacy — requires EASEBUZZ_KEY and EASEBUZZ_SALT).
+    # "mock"     — No gateway required. Use "Complete Payment" button in the UI.
+    # "razorpay" — Requires RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET below.
+    # "easebuzz" — Legacy. Requires EASEBUZZ_KEY and EASEBUZZ_SALT below.
     PAYMENT_PROVIDER: Literal["mock", "razorpay", "easebuzz"] = "mock"
+    MOCK_PAYMENT_DELAY_SECONDS: float = 0.0
 
     # ─── Easebuzz Payment (Legacy — kept for existing data, not active) ───────────
     EASEBUZZ_KEY: str = Field(default="", description="Easebuzz merchant key (legacy, not used)")
@@ -153,8 +153,8 @@ class Settings(BaseSettings):
     @classmethod
     def validate_jwt_secret(cls, v: str) -> str:
         """Enforces a minimum JWT secret length to prevent weak signing keys."""
-        if len(v) < 32:
-            raise ValueError("JWT_SECRET must be at least 32 characters long")
+        if len(v) < 64:
+            raise ValueError("JWT_SECRET must be at least 64 characters long")
         return v
 
     def validate_payment_provider_credentials(self) -> None:
@@ -176,6 +176,42 @@ class Settings(BaseSettings):
                     "PAYMENT_PROVIDER=easebuzz requires EASEBUZZ_KEY and "
                     "EASEBUZZ_SALT to be set in the environment."
                 )
+
+    def validate_all(self) -> None:
+        """
+        Validates the entire configuration for correctness at startup.
+        Fails fast if any required dependency or configuration is invalid.
+        """
+        self.validate_payment_provider_credentials()
+
+        if not self.SUPABASE_URL.startswith("http"):
+            raise ValueError("SUPABASE_URL must be a valid HTTP/HTTPS URL")
+
+        if not self.REDIS_URL.startswith("redis"):
+            raise ValueError("REDIS_URL must be a valid Redis URL")
+
+        if not self.DATABASE_URL.startswith("postgresql+asyncpg") and "sqlite" not in self.DATABASE_URL:
+            raise ValueError("DATABASE_URL must be a valid asyncpg PostgreSQL or SQLite connection string")
+
+        if not all([
+            self.STORAGE_BUCKET_PRINT_FILES,
+            self.STORAGE_BUCKET_RECEIPTS,
+            self.STORAGE_BUCKET_REPORTS,
+            self.STORAGE_BUCKET_SYSTEM_ASSETS
+        ]):
+            raise ValueError("All storage buckets must be configured (cannot be empty)")
+
+        if len(self.WS_SECRET) < 32:
+            raise ValueError("WS_SECRET must be at least 32 characters long")
+
+        if len(self.JWT_SECRET) < 64:
+            raise ValueError("JWT_SECRET must be at least 64 characters long")
+
+        if not self.SUPABASE_SERVICE_ROLE_KEY:
+            raise ValueError("SUPABASE_SERVICE_ROLE_KEY must be configured")
+
+        if not self.ALLOWED_ORIGINS:
+            raise ValueError("ALLOWED_ORIGINS cannot be empty")
 
     @property
     def is_mock_payment(self) -> bool:

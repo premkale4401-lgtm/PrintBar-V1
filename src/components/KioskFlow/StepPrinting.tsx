@@ -44,7 +44,7 @@ export const StepPrinting: React.FC<StepPrintingProps> = ({
 
   const sessionId = sessionService.getToken() ? 'session' : null;
 
-  const { jobStatus, pageProgress, message, wsConnected, isPolling } = useJobStatus({
+  const { jobStatus, pageProgress, message, wsConnected, isPolling, error, retryConnection } = useJobStatus({
     jobId: jobId ?? null,
     sessionId,
     enabled: !!jobId,
@@ -61,7 +61,7 @@ export const StepPrinting: React.FC<StepPrintingProps> = ({
   }, [jobStatus, onPrintingComplete]);
 
   const currentStep = jobStatus ? (STATUS_STEP_MAP[jobStatus] ?? 0) : 0;
-  const isFailed = jobStatus === 'FAILED' || jobStatus === 'CANCELLED';
+  const isFailed = jobStatus === 'FAILED' || jobStatus === 'CANCELLED' || !!error;
 
   const handleDone = () => {
     onPrintingComplete();
@@ -98,7 +98,7 @@ export const StepPrinting: React.FC<StepPrintingProps> = ({
   ];
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto pb-12 pt-2">
+    <div className="space-y-8 max-w-5xl mx-auto pb-12 pt-2" aria-live="polite">
       
       {/* 2-COLUMN GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center min-h-[420px]">
@@ -109,11 +109,11 @@ export const StepPrinting: React.FC<StepPrintingProps> = ({
           {/* Header */}
           <div className="space-y-2">
             <h1 className="text-3xl font-extrabold font-['Outfit'] text-slate-900 tracking-tight">
-              {isFailed ? 'Print Job Failed' : jobStatus === 'COMPLETED' ? 'Print Job Ready' : 'Processing Print Job'}
+              {isFailed ? (error ? 'Connection Lost' : 'Print Job Failed') : jobStatus === 'COMPLETED' ? 'Print Job Ready' : 'Processing Print Job'}
             </h1>
             <p className="text-sm text-slate-600 font-normal leading-relaxed">
               {isFailed
-                ? (message ?? 'Your print job encountered an error. Please contact support.')
+                ? (error ?? message ?? 'Your print job encountered an error. Please contact support.')
                 : jobStatus === 'COMPLETED'
                 ? `Successfully printed ${pageCount} pages. You can collect your items from Tray A.`
                 : jobId
@@ -126,10 +126,15 @@ export const StepPrinting: React.FC<StepPrintingProps> = ({
           {/* Connection status indicator */}
           {jobId && (
             <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-emerald-500 animate-pulse' : isPolling ? 'bg-amber-500 animate-pulse' : 'bg-slate-300'}`} />
+              <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-emerald-500 animate-pulse' : isPolling ? 'bg-amber-500 animate-pulse' : error ? 'bg-red-500' : 'bg-slate-300'}`} />
               <span className="text-xs text-slate-500 font-medium">
-                {wsConnected ? 'Live updates connected' : isPolling ? 'Polling for updates' : 'Connecting...'}
+                {wsConnected ? 'Live updates connected' : isPolling ? 'Polling for updates' : error ? 'Connection offline' : 'Connecting...'}
               </span>
+              {error && (
+                <button onClick={retryConnection} className="ml-2 text-xs font-bold text-blue-600 hover:text-blue-700 underline cursor-pointer">
+                  Retry Connection
+                </button>
+              )}
             </div>
           )}
 

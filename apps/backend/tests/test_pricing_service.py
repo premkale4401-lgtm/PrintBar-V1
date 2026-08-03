@@ -16,7 +16,6 @@ import pytest
 
 from app.services.pricing_service import PriceCalculation
 
-
 # ─── PriceCalculation Dataclass ───────────────────────────────────────────────
 
 def test_price_calculation_to_dict_has_required_keys():
@@ -71,9 +70,10 @@ def test_price_calculation_currency_is_inr():
 @pytest.mark.asyncio
 async def test_pricing_service_bw_calculation(db_session):
     """PricingService must correctly calculate BW pricing with GST."""
+    from datetime import UTC, datetime
+
     from app.models.pricing_rule import PricingRule
     from app.services.pricing_service import PricingService
-    from datetime import UTC, datetime
 
     rule = PricingRule(
         name="BW Test Rule",
@@ -109,9 +109,10 @@ async def test_pricing_service_bw_calculation(db_session):
 @pytest.mark.asyncio
 async def test_pricing_service_color_calculation(db_session):
     """PricingService must apply color pricing for COLOR mode."""
+    from datetime import UTC, datetime
+
     from app.models.pricing_rule import PricingRule
     from app.services.pricing_service import PricingService
-    from datetime import UTC, datetime
 
     rule = PricingRule(
         name="Color Test Rule",
@@ -147,6 +148,7 @@ async def test_pricing_service_color_calculation(db_session):
 async def test_pricing_service_no_active_rule_raises(db_session):
     """PricingService must raise RuntimeError when no active rule exists."""
     from sqlalchemy import update
+
     from app.models.pricing_rule import PricingRule
     from app.services.pricing_service import PricingService
 

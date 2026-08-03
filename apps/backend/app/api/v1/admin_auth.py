@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
@@ -19,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.rate_limit import limiter
 from app.core.security import jwt_handler, password_hasher
 from app.database.session import get_db
 from app.dependencies import get_current_admin
@@ -32,6 +32,7 @@ settings = get_settings()
 
 
 @router.post("/login", summary="Admin login")
+@limiter.limit("5/15minutes")
 async def admin_login(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -90,6 +91,7 @@ async def admin_login(
         ip_address=request.client.host if request.client else None,
     )
     db.add(refresh_token)
+    await db.commit()
 
     logger.info("admin_login_success", user_id=str(user.id), email=email)
 
@@ -176,6 +178,7 @@ async def refresh_token(
         ip_address=request.client.host if request.client else None,
     )
     db.add(new_refresh)
+    await db.commit()
 
     return JSONResponse(
         content={
@@ -208,6 +211,7 @@ async def admin_logout(
             .where(RefreshToken.token_hash == token_hash)
             .values(is_revoked=True, revoked_at=datetime.now(tz=UTC).isoformat())
         )
+        await db.commit()
 
     logger.info("admin_logout", user_id=str(current_user.id))
     return {"success": True, "message": "Logged out successfully."}

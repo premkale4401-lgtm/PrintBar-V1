@@ -35,6 +35,7 @@ export const uploadService = {
   async uploadPdf(
     file: File,
     onProgress?: UploadProgressCallback,
+    signal?: AbortSignal,
   ): Promise<UploadResult> {
     // Ensure active guest session token exists before upload
     if (!sessionService.hasActiveSession()) {
@@ -48,6 +49,7 @@ export const uploadService = {
       '/uploads',
       formData,
       {
+        signal,
         headers: {
           'Content-Type': 'multipart/form-data',
         },

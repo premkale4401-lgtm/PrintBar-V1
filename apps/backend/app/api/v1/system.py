@@ -75,7 +75,7 @@ async def get_system_status(
         await r.ping()
         await r.aclose()
         checks["redis"] = {"status": "ok"}
-    except Exception as exc:
+    except Exception:
         checks["redis"] = {"status": "error", "error": "Redis unavailable"}
 
     # ── Supabase Storage ────────────────────────────────────────────────────────
@@ -86,7 +86,7 @@ async def get_system_status(
         )
         # A False result is fine (file doesn't exist) — it means storage is reachable.
         checks["storage"] = {"status": "ok", "bucket": settings.STORAGE_BUCKET_PRINT_FILES}
-    except Exception as exc:
+    except Exception:
         checks["storage"] = {"status": "error", "error": "Storage unavailable"}
 
     # ── Active WebSocket Connections ─────────────────────────────────────────────

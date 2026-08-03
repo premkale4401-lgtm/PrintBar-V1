@@ -27,12 +27,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import select
 
+from app.core.constants import ROLE_SUPER_ADMIN
+from app.core.logging import configure_logging, get_logger
 from app.core.security import password_hasher
 from app.database.session import AsyncSessionFactory
 from app.models.pricing_rule import PricingRule
 from app.models.user import User
-from app.core.constants import ROLE_SUPER_ADMIN
-from app.core.logging import configure_logging, get_logger
 
 configure_logging()
 logger = get_logger(__name__)

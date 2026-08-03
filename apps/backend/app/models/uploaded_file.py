@@ -12,10 +12,8 @@ Privacy Policy (doc 36):
 Only non-PII metadata (page_count, file_size_bytes, mime_type) is retained permanently.
 """
 
-import uuid
 
-from sqlalchemy import BigInteger, Boolean, Enum, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import BigInteger, Boolean, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import PrintBarBase
@@ -39,6 +37,7 @@ class UploadedFile(PrintBarBase):
         is_deleted:         True if the file has been removed from storage.
         deleted_at:         Timestamp of deletion from Supabase Storage.
         expires_at:         Auto-delete deadline (if not printed/paid in time).
+        correlation_id:     Trace ID linking this upload to a specific workflow.
 
     Relationships:
         print_jobs:  All print jobs that reference this file.
@@ -63,6 +62,7 @@ class UploadedFile(PrintBarBase):
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     deleted_at: Mapped[str | None] = mapped_column(String(50), nullable=True)
     expires_at: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    correlation_id: Mapped[str] = mapped_column(String(128), nullable=False, default="unknown", index=True)
 
     # Relationships
     print_jobs: Mapped[list["PrintJob"]] = relationship(  # noqa: F821

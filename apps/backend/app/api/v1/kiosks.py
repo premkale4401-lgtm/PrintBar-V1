@@ -7,12 +7,15 @@ POST /api/v1/kiosks/heartbeat      — Kiosk: HTTP fallback heartbeat
 GET  /api/v1/kiosks/{kiosk_id}     — Admin: kiosk detail + health metrics
 """
 from __future__ import annotations
+
 import uuid
 from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.security import jwt_handler

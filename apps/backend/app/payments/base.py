@@ -61,6 +61,7 @@ class WebhookResult:
     """
 
     event_type: str
+    gateway_event_id: str | None
     gateway_order_id: str
     gateway_txn_id: str
     amount_paise: int

@@ -1,4 +1,4 @@
-﻿"""
+"""
 PrintBar Kiosk Agent — Heartbeat Sender
 
 Sends a heartbeat message every 30 seconds over the WebSocket.
@@ -15,10 +15,17 @@ logger = logging.getLogger(__name__)
 class HeartbeatSender:
     """Sends periodic heartbeat messages to the backend."""
 
-    def __init__(self, settings: KioskSettings, ws_send, get_printer_status=None) -> None:
+    def __init__(
+        self, 
+        settings: KioskSettings, 
+        ws_send, 
+        get_printer_status=None, 
+        ws_force_disconnect=None
+    ) -> None:
         self._settings = settings
         self._ws_send = ws_send
         self._get_printer_status = get_printer_status
+        self._ws_force_disconnect = ws_force_disconnect
         self._printing = False
 
     def set_printing(self, printing: bool) -> None:
@@ -32,12 +39,12 @@ class HeartbeatSender:
         while True:
             try:
                 metrics = get_system_metrics()
-                printer_status = None
+                printer_status = "UNKNOWN"
                 if self._get_printer_status:
                     try:
                         printer_status = await self._get_printer_status()
                     except Exception:
-                        pass
+                        printer_status = "UNKNOWN"
 
                 await self._ws_send({
                     "type": "HEARTBEAT",
@@ -55,5 +62,7 @@ class HeartbeatSender:
                 logger.debug("heartbeat_sent")
             except Exception as exc:
                 logger.error("heartbeat_error", error=str(exc))
+                if self._ws_force_disconnect:
+                    await self._ws_force_disconnect()
 
             await asyncio.sleep(self._settings.heartbeat_interval_sec)

@@ -1,4 +1,4 @@
-﻿"""
+"""
 PrintBar Kiosk Agent — Job Handler
 
 Receives NEW_JOB WebSocket messages, downloads the PDF, prints it via CUPS,
@@ -34,6 +34,8 @@ class JobHandler:
         self._ws_send = ws_send
         self._set_printing = set_printing_fn
         self._active_job_id: str | None = None
+        self._processed_job_ids: list[str] = []
+        self._lock = asyncio.Lock()
 
     async def handle_new_job(self, job_data: dict) -> None:
         """
@@ -47,50 +49,66 @@ class JobHandler:
             logger.error("new_job_missing_job_id")
             return
 
-        self._active_job_id = job_id
-        self._set_printing(True)
-        pdf_path: str | None = None
+        async with self._lock:
+            if job_id in self._processed_job_ids:
+                logger.info("duplicate_job_ignored", job_id=job_id)
+                return
 
-        try:
-            # 1. Request download URL.
-            await self._report_status(job_id, "DOWNLOADING")
-            download_url = await self._get_download_url(job_id)
-            expected_sha256 = job_data.get("sha256")
+            self._processed_job_ids.append(job_id)
+            if len(self._processed_job_ids) > 100:
+                self._processed_job_ids.pop(0)
 
-            # 2. Download PDF.
-            pdf_path = await self._downloader.download(job_id, download_url, expected_sha256)
+            self._active_job_id = job_id
+            self._set_printing(True)
+            pdf_path: str | None = None
+            start_time = asyncio.get_running_loop().time()
 
-            # 3. Print via CUPS.
-            await self._report_status(job_id, "PRINTING")
-            cups_job_id = self._printer.submit_job(
-                pdf_path,
-                copies=job_data.get("copies", 1),
-                color_mode=job_data.get("colorMode", "BW"),
-                duplex=job_data.get("duplex", False),
-                paper_size=job_data.get("paperSize", "A4"),
-            )
+            try:
+                # 1. Request download URL.
+                await self._report_status(job_id, "DOWNLOADING")
+                download_url = await self._get_download_url(job_id)
+                expected_sha256 = job_data.get("sha256")
+                expected_size = job_data.get("fileSize")
 
-            # 4. Wait for CUPS to finish.
-            success = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self._printer.wait_for_completion(cups_job_id, self._settings.print_timeout_sec),
-            )
+                # 2. Download PDF.
+                pdf_path = await self._downloader.download(job_id, download_url, expected_sha256, expected_size)
 
-            if success:
-                logger.info("job_completed", job_id=job_id)
-                await self._report_status(job_id, "COMPLETED")
-            else:
-                logger.error("job_print_failed", job_id=job_id)
-                await self._report_status(job_id, "FAILED", error="Print job did not complete successfully.")
+                # 3. Print via CUPS.
+                await self._report_status(job_id, "PRINTING")
+                cups_job_id = self._printer.submit_job(
+                    pdf_path,
+                    copies=job_data.get("copies", 1),
+                    color_mode=job_data.get("colorMode", "BW"),
+                    duplex=job_data.get("duplex", False),
+                    paper_size=job_data.get("paperSize", "A4"),
+                )
 
-        except Exception as exc:
-            logger.error("job_handler_error", job_id=job_id, error=str(exc))
-            await self._report_status(job_id, "FAILED", error=str(exc))
-        finally:
-            if pdf_path:
-                self._downloader.cleanup(pdf_path)
-            self._active_job_id = None
-            self._set_printing(False)
+                # 4. Wait for CUPS to finish.
+                success = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._printer.wait_for_completion(cups_job_id, self._settings.print_timeout_sec),
+                )
+
+                duration = asyncio.get_running_loop().time() - start_time
+                pages = job_data.get("totalPages", "unknown")
+
+                if success:
+                    logger.info("job_completed", job_id=job_id, duration=duration, pages=pages)
+                    await self._report_status(job_id, "COMPLETED")
+                else:
+                    logger.error("job_print_failed", job_id=job_id, duration=duration, pages=pages)
+                    await self._report_status(job_id, "FAILED", error="Print job did not complete successfully.")
+
+            except Exception as exc:
+                duration = asyncio.get_running_loop().time() - start_time
+                pages = job_data.get("totalPages", "unknown")
+                logger.error("job_handler_error", job_id=job_id, error=str(exc), duration=duration, pages=pages)
+                await self._report_status(job_id, "FAILED", error=str(exc))
+            finally:
+                if pdf_path:
+                    await self._downloader.async_cleanup(pdf_path)
+                self._active_job_id = None
+                self._set_printing(False)
 
     async def handle_cancel(self, job_id: str) -> None:
         """Cancels an in-progress job."""

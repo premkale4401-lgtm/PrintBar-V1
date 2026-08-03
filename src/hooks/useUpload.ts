@@ -9,7 +9,7 @@
  * Used by StepUpload to replace local pdfjs-only file handling.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { uploadService, UploadResult } from '../services/upload.service';
 import { PrintBarApiError } from '../lib/api';
 
@@ -28,8 +28,20 @@ export function useUpload(): UseUploadResult {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  
+  const abortControllersRef = useRef<AbortController[]>([]);
+
+  // Abort all ongoing uploads on unmount
+  useEffect(() => {
+    return () => {
+      abortControllersRef.current.forEach(controller => controller.abort('Component unmounted'));
+      abortControllersRef.current = [];
+    };
+  }, []);
 
   const reset = useCallback(() => {
+    abortControllersRef.current.forEach(controller => controller.abort('Upload cancelled by user'));
+    abortControllersRef.current = [];
     setIsUploading(false);
     setProgress(0);
     setError(null);
@@ -42,12 +54,19 @@ export function useUpload(): UseUploadResult {
     setError(null);
     setErrorCode(null);
 
+    const controller = new AbortController();
+    abortControllersRef.current.push(controller);
+
     try {
       const result = await uploadService.uploadPdf(file, (pct) => {
         setProgress(pct);
-      });
+      }, controller.signal);
       return result;
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === 'CanceledError' || err?.message === 'canceled') {
+        // Ignored because user aborted intentionally
+        return null;
+      }
       if (err instanceof PrintBarApiError) {
         setError(err.message);
         setErrorCode(err.code);
@@ -57,7 +76,10 @@ export function useUpload(): UseUploadResult {
       }
       return null;
     } finally {
-      setIsUploading(false);
+      abortControllersRef.current = abortControllersRef.current.filter(c => c !== controller);
+      if (abortControllersRef.current.length === 0) {
+        setIsUploading(false);
+      }
     }
   }, []);
 

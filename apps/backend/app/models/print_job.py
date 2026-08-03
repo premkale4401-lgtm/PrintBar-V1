@@ -17,31 +17,31 @@ All state transitions are recorded in the audit_logs table.
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.constants import (
     COLOR_MODE_BW,
     COLOR_MODE_COLOR,
-    JOB_STATUS_UPLOADED,
-    JOB_STATUS_VALIDATED,
+    JOB_STATUS_ASSIGNED,
+    JOB_STATUS_CANCELLED,
+    JOB_STATUS_COMPLETED,
+    JOB_STATUS_DOWNLOAD_FAILED,
+    JOB_STATUS_DOWNLOADING,
+    JOB_STATUS_FAILED,
+    JOB_STATUS_PAYMENT_FAILED,
     JOB_STATUS_PAYMENT_PENDING,
     JOB_STATUS_PAYMENT_SUCCESS,
-    JOB_STATUS_QUEUED,
-    JOB_STATUS_ASSIGNED,
-    JOB_STATUS_DOWNLOADING,
-    JOB_STATUS_READY_TO_PRINT,
     JOB_STATUS_PRINTING,
-    JOB_STATUS_COMPLETED,
-    JOB_STATUS_FAILED,
-    JOB_STATUS_CANCELLED,
-    JOB_STATUS_PAYMENT_FAILED,
-    JOB_STATUS_DOWNLOAD_FAILED,
-    PAPER_SIZE_A4,
+    JOB_STATUS_QUEUED,
+    JOB_STATUS_READY_TO_PRINT,
+    JOB_STATUS_UPLOADED,
+    JOB_STATUS_VALIDATED,
     PAPER_SIZE_A3,
-    PAPER_SIZE_LETTER,
+    PAPER_SIZE_A4,
     PAPER_SIZE_LEGAL,
+    PAPER_SIZE_LETTER,
 )
 from app.database.base import PrintBarBase
 
@@ -163,9 +163,12 @@ class PrintJob(PrintBarBase):
     failure_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    # Idempotency
+    # Idempotency & Tracing
     idempotency_key: Mapped[str] = mapped_column(
         String(128), nullable=False, unique=True, index=True
+    )
+    correlation_id: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="unknown", index=True
     )
 
     # Relationships

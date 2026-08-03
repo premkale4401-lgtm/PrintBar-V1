@@ -19,6 +19,7 @@ Security:
 from __future__ import annotations
 
 import secrets
+import asyncio
 from decimal import Decimal
 
 from app.core.logging import get_logger
@@ -60,15 +61,17 @@ class MockPaymentProvider:
         Returns:
             OrderResult with a stable mock gateway_order_id.
         """
+        await asyncio.sleep(settings.MOCK_PAYMENT_DELAY_SECONDS)
+
         # Stable mock order ID: prefix + first 20 chars of receipt_id.
         mock_order_id = f"mock_order_{receipt_id[:20].replace('-', '')}"
         amount_paise = int(amount_inr * 100)
 
         logger.info(
-            "mock_payment_order_created",
-            mock_order_id=mock_order_id,
-            amount_inr=str(amount_inr),
+            "mock_order_created",
             receipt_id=receipt_id,
+            mock_order_id=mock_order_id,
+            amount_paise=amount_paise,
         )
 
         return OrderResult(
@@ -202,6 +205,8 @@ class MockPaymentProvider:
         Returns:
             OrderStatus with is_paid=True for any mock order ID.
         """
+        await asyncio.sleep(settings.MOCK_PAYMENT_DELAY_SECONDS)
+        
         is_mock = gateway_order_id.startswith("mock_order_")
 
         logger.debug(

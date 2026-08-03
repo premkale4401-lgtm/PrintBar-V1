@@ -8,7 +8,7 @@ Provides shared fixtures for all tests:
 """
 from __future__ import annotations
 
-import asyncio
+import os
 from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
@@ -20,8 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.database.base import Base
 from app.database.session import get_db
 from app.main import app
-
-import os
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",

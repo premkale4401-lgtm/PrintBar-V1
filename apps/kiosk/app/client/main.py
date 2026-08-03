@@ -1,4 +1,4 @@
-﻿"""
+"""
 PrintBar Kiosk Agent — Main Orchestrator
 
 Wires together:
@@ -38,6 +38,12 @@ class KioskClient:
         """Main run loop — authenticates, then runs all subsystems concurrently."""
         logger.info("kiosk_client_run_start")
 
+        # 1. Startup cleanup of temp dir.
+        self._cleanup_temp_dir()
+
+        # 2. Printer validation at startup.
+        self._validate_printer_at_startup()
+
         # Authenticate and get JWT.
         token = await self._auth.authenticate()
 
@@ -50,7 +56,7 @@ class KioskClient:
         )
 
         # Job handler.
-        job_handler = JobHandler(
+        self._job_handler = JobHandler(
             settings=self._settings,
             downloader=self._downloader,
             printer=self._printer,
@@ -65,17 +71,49 @@ class KioskClient:
             settings=self._settings,
             ws_send=self._ws.send,
             get_printer_status=lambda: status_poller.status,
+            ws_force_disconnect=self._ws.force_disconnect,
         )
 
         # Wire printing flag.
-        job_handler._set_printing = self._heartbeat.set_printing
+        self._job_handler._set_printing = self._heartbeat.set_printing
 
         # Run all subsystems concurrently.
         await asyncio.gather(
             self._ws.run_forever(),
             self._heartbeat.run_forever(),
             status_poller.run_forever(),
+            self._periodic_cleanup_task(),
         )
+
+    def _cleanup_temp_dir(self) -> None:
+        """Cleans stale files from the temp directory."""
+        import os
+        try:
+            for filename in os.listdir(self._settings.temp_dir):
+                if filename.endswith(".pdf"):
+                    path = os.path.join(self._settings.temp_dir, filename)
+                    os.remove(path)
+            logger.info("temp_dir_cleaned_at_startup", dir=self._settings.temp_dir)
+        except Exception as exc:
+            logger.warning("temp_dir_cleanup_failed", error=str(exc))
+
+    async def _periodic_cleanup_task(self) -> None:
+        """Periodically cleans up the temporary directory."""
+        while True:
+            await asyncio.sleep(3600)  # Hourly cleanup
+            self._cleanup_temp_dir()
+
+    def _validate_printer_at_startup(self) -> None:
+        """Validates CUPS printer status on startup."""
+        status = self._printer.get_printer_status()
+        logger.info("printer_startup_validation", status=status, printer=self._settings.cups_printer_name)
+        if status == "UNKNOWN":
+            logger.error("printer_missing_at_startup", status=status)
+            raise RuntimeError("Default printer is missing or CUPS is inaccessible.")
+        elif status == "OFFLINE":
+            logger.warning("printer_offline_at_startup", status=status)
+        elif status in ("PAPER_OUT", "ERROR"):
+            logger.warning("printer_error_at_startup", status=status)
 
     async def _on_ws_message(self, msg: dict) -> None:
         """Dispatches incoming WebSocket messages to the appropriate handler."""
@@ -85,15 +123,7 @@ class KioskClient:
         if msg_type == "NEW_JOB":
             logger.info("ws_new_job_received", job_id=data.get("jobId"))
             if self._ws:
-                handler = JobHandler(
-                    settings=self._settings,
-                    downloader=self._downloader,
-                    printer=self._printer,
-                    auth_headers_fn=self._auth.authorization_header,
-                    ws_send=self._ws.send,
-                    set_printing_fn=self._heartbeat.set_printing if self._heartbeat else lambda v: None,
-                )
-                asyncio.create_task(handler.handle_new_job(data))
+                asyncio.create_task(self._job_handler.handle_new_job(data))
 
         elif msg_type == "CANCEL":
             logger.info("ws_cancel_received", job_id=data.get("jobId"))
