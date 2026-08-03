@@ -188,7 +188,14 @@ export function useCheckout(): UseCheckoutResult {
       // Step 2a: Mock mode — bypass gateway entirely.
       // Executes the identical downstream flow: PAYMENT_SUCCESS → QUEUED → print.
       if (orderResult.isMockMode) {
-        await paymentService.devCompletePayment(orderResult.jobId);
+        // In mock mode, we simulate the Razorpay callback to exercise the exact
+        // same backend verification pipeline (which uses MockPaymentProvider).
+        await paymentService.verifyPayment({
+          razorpay_order_id: orderResult.razorpayOrderId || orderResult.gatewayOrderId,
+          razorpay_payment_id: "pay_mock_" + Date.now().toString(),
+          razorpay_signature: "mock_signature_bypass",
+          job_id: orderResult.jobId,
+        });
 
         if (onSuccess) {
           onSuccess(orderResult.jobId);
