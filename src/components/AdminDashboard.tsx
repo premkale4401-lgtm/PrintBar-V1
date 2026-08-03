@@ -147,12 +147,28 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  // 3. Users are managed via backend admin users endpoint (not yet in admin.py)
-  // Using empty list for now — backend /admin/users endpoint to be added in a future milestone.
+  // 3. Fetch Users from backend /admin/users endpoint
   const fetchUsers = async () => {
     setLoadingUsers(true);
-    setUsers([]);
-    setLoadingUsers(false);
+    try {
+      const result = await adminService.getUsers(1, 50);
+      const mappedUsers: AdminUser[] = result.users.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role === 'SUPER_ADMIN' ? 'Admin' : 'Kiosk Operator',
+        walletBalance: 0,
+        totalOrders: 0,
+        status: u.isActive ? 'active' : 'blocked',
+        lastActive: u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never',
+        rawId: u.id,
+      }));
+      setUsers(mappedUsers);
+    } catch {
+      setUsers([]);
+    } finally {
+      setLoadingUsers(false);
+    }
   };
 
   const refreshAllData = () => {
@@ -172,29 +188,10 @@ export const AdminDashboard: React.FC = () => {
     showToast('All critical alerts dismissed');
   };
 
-  const handleRefillHub = (hubId: string) => {
-    // Local state update — telemetry push to kiosk not yet wired.
-    setHubs(prev => prev.map(h => h.id === hubId ? { ...h, paperLevel: 100, tonerLevel: 95, status: 'online' } : h));
-    showToast(`Refill request sent for Hub #${hubId}`);
+  const handleRefillHub = (_hubId: string) => {
+    showToast('Refill request logged. Contact the kiosk operator to physically refill paper/toner.');
   };
 
-  const handleSimulateTestJob = () => {
-    const pin = Math.floor(1000 + Math.random() * 9000).toString();
-    const fallbackJob: PrintJobRecord = {
-      id: `SIM-${Math.floor(2000 + Math.random() * 8000)}`,
-      fileName: `Document_${Math.floor(Math.random() * 900 + 100)}.pdf`,
-      pages: Math.floor(Math.random() * 8) + 1,
-      copies: 1,
-      hubName: hubs[0]?.name || 'Main Kiosk',
-      totalCost: Math.floor(Math.random() * 40) + 10,
-      status: 'queued',
-      timestamp: 'Just now',
-      pickupPin: pin,
-      colorMode: Math.random() > 0.5 ? 'color' : 'bw',
-    };
-    setJobs(prev => [fallbackJob, ...prev]);
-    showToast(`Pushed test job ${fallbackJob.id} to queue`);
-  };
 
   const handleCancelJob = (jobId: string) => {
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'failed' } : j));
@@ -211,112 +208,53 @@ export const AdminDashboard: React.FC = () => {
     e.preventDefault();
     if (!newHubName.trim()) return;
 
-    const hubObj = {
-      name: newHubName,
-      address: newHubAddress || 'Central Street',
-      city: newHubCity,
-      distance_km: 1.5,
-      status: 'online',
-      paper_level: 100,
-      toner_level: 100,
-      color_available: true,
-      a3_available: true,
-      is_24_hours: true,
-      current_queue: 0,
-      completed_today: 0,
-      created_at: new Date().toISOString()
-    };
-
     try {
       const result = await adminService.registerKiosk({
         name: newHubName,
         location: newHubAddress || 'Central Street',
         city: newHubCity,
       });
-      showToast(`Registered '${result.name}' in backend! API Key: ${result.apiKey.substring(0, 8)}... (check console)`);
-      console.info('Kiosk API Key (store securely):', result.apiKey);
+      showToast(`Registered '${result.name}'! API Key: ${result.apiKey.substring(0, 8)}... — store it securely.`);
       fetchKiosks();
+    } catch {
+      showToast('Failed to register kiosk. Check your admin credentials.');
+    } finally {
       setNewHubName('');
       setNewHubAddress('');
       setIsAddHubOpen(false);
-      return;
-    } catch (err) {
-      console.warn('Could not register kiosk via backend:', err);
     }
-
-    // Local fallback
-    setHubs(prev => [...prev, {
-      id: `hub-${Date.now()}`,
-      name: newHubName,
-      address: newHubAddress || 'Central Street',
-      city: newHubCity,
-      distanceKm: 1.5,
-      status: 'online',
-      paperLevel: 100,
-      tonerLevel: 100,
-      colorAvailable: true,
-      a3Available: true,
-      is24Hours: true,
-      currentQueue: 0,
-      completedToday: 0,
-      lastMaintenance: new Date().toISOString().split('T')[0],
-      latitude: 37.77,
-      longitude: -122.42,
-    }]);
-    setNewHubName('');
-    setNewHubAddress('');
-    setIsAddHubOpen(false);
-    showToast(`Added '${newHubName}' kiosk terminal!`);
   };
 
   const handleAddUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUserName.trim() || !newUserEmail.trim()) return;
-
-    const userObj = {
-      name: newUserName,
-      email: newUserEmail,
-      role: newUserRole,
-      wallet_balance: parseFloat(newUserWallet) || 0,
-      status: 'active',
-      created_at: new Date().toISOString()
-    };
-
-    setUsers(prev => [...prev, {
-      id: `usr-${Date.now()}`,
-      name: newUserName,
-      email: newUserEmail,
-      role: newUserRole,
-      walletBalance: parseFloat(newUserWallet) || 0,
-      totalOrders: 0,
-      status: 'active',
-      lastActive: 'Just now'
-    }]);
+    showToast('User creation requires direct database access. Use seed_db.py to create admin users.');
     setNewUserName('');
     setNewUserEmail('');
     setIsAddUserOpen(false);
-    showToast(`User ${newUserName} created (backend /admin/users endpoint pending)!`);
   };
 
-  const handleTopUpUser = (userId: string, amount: number) => {
-    const target = users.find(u => u.id === userId);
-    if (!target) return;
-    const newBal = target.walletBalance + amount;
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, walletBalance: newBal } : u));
-    showToast(`Topped up ₹${amount} for ${target.name}!`);
+  const handleTopUpUser = (_userId: string, _amount: number) => {
+    showToast('Wallet top-up requires a payment integration. Not available in this version.');
   };
 
-  const handleToggleUserStatus = (userId: string) => {
-    const target = users.find(u => u.id === userId);
-    if (!target) return;
-    const nextStatus = target.status === 'active' ? 'blocked' : 'active';
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: nextStatus } : u));
-    showToast(`User status set to ${nextStatus}`);
+  const handleToggleUserStatus = (_userId: string) => {
+    showToast('User status management requires a backend endpoint. Contact system administrator.');
   };
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    showToast('System configuration & pricing rates updated!');
+    try {
+      await adminService.createPricingRule({
+        name: `Rate Update ${new Date().toLocaleDateString()}`,
+        bwPriceInr: pricingSettings.bwRate,
+        colorPriceInr: pricingSettings.colorRate,
+        a3Multiplier: pricingSettings.a3Multiplier,
+        gstPercent: pricingSettings.taxRate,
+      });
+      showToast('Pricing rules saved and activated!');
+    } catch {
+      showToast('Failed to save pricing rules. Check admin credentials.');
+    }
   };
 
   // Filtered Jobs
@@ -792,11 +730,11 @@ export const AdminDashboard: React.FC = () => {
                 </div>
 
                 <button
-                  onClick={handleSimulateTestJob}
+                  onClick={fetchJobs}
                   className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer inline-flex items-center gap-1.5 shrink-0"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Simulate Test Job</span>
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh Jobs</span>
                 </button>
               </div>
 

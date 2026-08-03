@@ -96,14 +96,23 @@ async def calculate_price(
         }
 
     service = PricingService(db)
-    result = await service.calculate(
-        pages_selected=pages,
-        color_mode=color_mode_upper,
-        paper_size=paper_size_upper,
-        copies=copies,
-        duplex=duplex,
-        pages_per_sheet=pages_per_sheet,
-    )
+    try:
+        result = await service.calculate(
+            pages_selected=pages,
+            color_mode=color_mode_upper,
+            paper_size=paper_size_upper,
+            copies=copies,
+            duplex=duplex,
+            pages_per_sheet=pages_per_sheet,
+        )
+    except RuntimeError as exc:
+        return {
+            "success": False,
+            "error": {
+                "code": "PRICE_500",
+                "message": "Pricing service is not configured. Contact the administrator.",
+            },
+        }
 
     return {"success": True, "data": result.to_dict()}
 

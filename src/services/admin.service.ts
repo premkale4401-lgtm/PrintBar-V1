@@ -1,21 +1,23 @@
 /**
  * PrintBar — Admin Service
  *
- * POST /api/v1/admin/auth/login   → admin login (email + password → JWT pair)
- * POST /api/v1/admin/auth/logout  → revoke refresh token
- * POST /api/v1/admin/auth/refresh → token rotation
- * GET  /api/v1/admin/dashboard    → platform stats
- * GET  /api/v1/admin/jobs         → paginated job list
- * GET  /api/v1/admin/kiosks       → all kiosks
- * POST /api/v1/admin/kiosks       → register kiosk
- * GET  /api/v1/admin/pricing      → pricing rules
- * POST /api/v1/admin/pricing      → create pricing rule
- * GET  /api/v1/admin/audit-logs   → audit log
+ * POST /api/v1/admin/auth/login        → admin login (email + password → JWT pair)
+ * POST /api/v1/admin/auth/logout       → revoke refresh token
+ * POST /api/v1/admin/auth/refresh      → token rotation
+ * GET  /api/v1/admin/dashboard         → platform stats
+ * GET  /api/v1/admin/jobs              → paginated job list
+ * GET  /api/v1/admin/kiosks            → all kiosks
+ * POST /api/v1/admin/kiosks            → register kiosk
+ * GET  /api/v1/admin/kiosks/{id}       → single kiosk detail
+ * POST /api/v1/admin/kiosks/{id}/rotate-key → rotate API key
+ * GET  /api/v1/admin/pricing           → pricing rules
+ * POST /api/v1/admin/pricing           → create pricing rule
+ * GET  /api/v1/admin/audit-logs        → audit log
+ * GET  /api/v1/admin/users             → platform users (super admin)
  */
 
 import {
   apiFetch,
-  apiClient,
   setAdminTokens,
   clearAdminTokens,
   ADMIN_REFRESH_KEY,
@@ -75,6 +77,7 @@ export interface AdminJobsResult {
   jobs: AdminJob[];
   page: number;
   pageSize: number;
+  total: number;
 }
 
 // ─── Kiosks ───────────────────────────────────────────────────────────────────
@@ -94,6 +97,22 @@ export interface AdminKiosk {
   lastHeartbeat: string | null;
 }
 
+export interface KioskHeartbeatEntry {
+  receivedAt: string | null;
+  cpuPercent: number | null;
+  ramPercent: number | null;
+  diskPercent: number | null;
+  temperatureC: number | null;
+  printerStatus: string | null;
+}
+
+export interface AdminKioskDetail extends AdminKiosk {
+  isActive: boolean;
+  jobsCompletedToday: number;
+  jobsCompletedTotal: number;
+  recentHeartbeats: KioskHeartbeatEntry[];
+}
+
 // ─── Pricing ──────────────────────────────────────────────────────────────────
 
 export interface AdminPricingRule {
@@ -101,9 +120,13 @@ export interface AdminPricingRule {
   name: string;
   bwPriceInr: string;
   colorPriceInr: string;
+  a3Multiplier: string;
+  legalMultiplier: string;
+  duplexDiscount: string;
   gstPercent: string;
   isActive: boolean;
   validFrom: string;
+  validUntil: string | null;
   notes: string | null;
 }
 
@@ -129,6 +152,32 @@ export interface AuditLogEntry {
   result: string;
   ipAddress: string | null;
   createdAt: string | null;
+}
+
+export interface AuditLogsResult {
+  data: AuditLogEntry[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+// ─── Users ────────────────────────────────────────────────────────────────────
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string | null;
+}
+
+export interface AdminUsersResult {
+  users: AdminUser[];
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -181,17 +230,12 @@ export const adminService = {
 
   // ── Jobs ────────────────────────────────────────────────────────────────────
 
-  async getJobs(
-    page = 1,
-    pageSize = 50,
-    status?: string,
-  ): Promise<AdminJobsResult> {
+  async getJobs(page = 1, pageSize = 50, status?: string): Promise<AdminJobsResult> {
     const params = new URLSearchParams({
       page: String(page),
       page_size: String(pageSize),
     });
     if (status) params.append('status', status);
-
     return apiFetch<AdminJobsResult>({
       method: 'GET',
       url: `/admin/jobs?${params.toString()}`,
@@ -204,6 +248,10 @@ export const adminService = {
     return apiFetch<AdminKiosk[]>({ method: 'GET', url: '/admin/kiosks' });
   },
 
+  async getKioskDetail(kioskId: string): Promise<AdminKioskDetail> {
+    return apiFetch<AdminKioskDetail>({ method: 'GET', url: `/admin/kiosks/${kioskId}` });
+  },
+
   async registerKiosk(payload: {
     name: string;
     location: string;
@@ -211,11 +259,18 @@ export const adminService = {
     notes?: string;
     latitude?: number;
     longitude?: number;
-  }): Promise<{ kioskId: string; name: string; apiKey: string }> {
-    return apiFetch<{ kioskId: string; name: string; apiKey: string }>({
+  }): Promise<{ kioskId: string; name: string; apiKey: string; warning: string }> {
+    return apiFetch<{ kioskId: string; name: string; apiKey: string; warning: string }>({
       method: 'POST',
       url: '/admin/kiosks',
       data: payload,
+    });
+  },
+
+  async rotateKioskKey(kioskId: string): Promise<{ kioskId: string; apiKey: string }> {
+    return apiFetch<{ kioskId: string; apiKey: string }>({
+      method: 'POST',
+      url: `/admin/kiosks/${kioskId}/rotate-key`,
     });
   },
 
@@ -237,14 +292,28 @@ export const adminService = {
 
   // ── Audit Logs ──────────────────────────────────────────────────────────────
 
-  async getAuditLogs(page = 1, pageSize = 50): Promise<AuditLogEntry[]> {
+  async getAuditLogs(page = 1, pageSize = 50, action?: string): Promise<AuditLogsResult> {
     const params = new URLSearchParams({
       page: String(page),
       page_size: String(pageSize),
     });
-    return apiFetch<AuditLogEntry[]>({
+    if (action) params.append('action', action);
+    return apiFetch<AuditLogsResult>({
       method: 'GET',
       url: `/admin/audit-logs?${params.toString()}`,
+    });
+  },
+
+  // ── Users ────────────────────────────────────────────────────────────────────
+
+  async getUsers(page = 1, pageSize = 20): Promise<AdminUsersResult> {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    return apiFetch<AdminUsersResult>({
+      method: 'GET',
+      url: `/admin/users?${params.toString()}`,
     });
   },
 };

@@ -41,10 +41,14 @@ _TestSessionFactory = async_sessionmaker(
 
 
 
-@pytest_asyncio.fixture(scope="session", autouse=True)
+@pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
 async def setup_test_database():
-    """Session fixture for test database setup and teardown."""
+    """Session fixture: creates test DB tables once and tears down at end of session."""
+    async with _test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield
+    async with _test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
     await _test_engine.dispose()
 
 

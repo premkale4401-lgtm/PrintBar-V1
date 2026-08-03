@@ -2,8 +2,8 @@
 PrintBar Backend — Supabase Storage Service
 
 Handles all file operations with Supabase Storage:
-    - Upload a file object
-    - Generate a signed download URL
+    - Upload a file object (with exponential-backoff retry)
+    - Generate a signed download URL (with retry)
     - Delete a file
     - Verify a file exists
 
@@ -15,16 +15,20 @@ Buckets:
     receipts        — payment receipt PDFs (future)
     reports         — analytics exports (future)
     system-assets   — kiosk configuration files (future)
+
+Retry policy:
+    Transient network failures (TimeoutException, ConnectError) are retried
+    up to _STORAGE_MAX_RETRIES times with exponential backoff.
+    Permanent failures (4xx responses) are NOT retried.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
-import io
-from typing import BinaryIO
+from typing import BinaryIO  # noqa: F401  — exported for callers
 
 import httpx
-import structlog
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -32,6 +36,10 @@ from app.exceptions.base import StorageError, StorageObjectNotFoundError
 
 logger = get_logger(__name__)
 settings = get_settings()
+
+# Retry configuration for transient storage failures.
+_STORAGE_MAX_RETRIES: int = 3
+_STORAGE_RETRY_BASE_DELAY: float = 1.0  # seconds — doubles each attempt
 
 
 class StorageService:
@@ -42,6 +50,7 @@ class StorageService:
     for fine-grained control over timeouts and error handling.
 
     All methods raise StorageError on failure — never expose raw HTTP errors.
+    Transient network errors are automatically retried with exponential backoff.
     """
 
     def __init__(self) -> None:
@@ -50,6 +59,8 @@ class StorageService:
             "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
             "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
         }
+
+    # ─── Upload ───────────────────────────────────────────────────────────────
 
     async def upload_file(
         self,
@@ -61,6 +72,9 @@ class StorageService:
         """
         Uploads a file to a Supabase Storage bucket.
 
+        Retries up to _STORAGE_MAX_RETRIES times on transient network errors
+        with exponential backoff (1s, 2s, 4s).
+
         Args:
             bucket:       Target bucket name (e.g., "print-files").
             object_path:  Storage path within the bucket (e.g., "2026/08/uuid.pdf").
@@ -71,46 +85,93 @@ class StorageService:
             The full storage path of the uploaded object.
 
         Raises:
-            StorageError: On any upload failure.
+            StorageError: On any upload failure after all retries exhausted.
         """
         url = f"{self._base_url}/object/{bucket}/{object_path}"
+        last_error: Exception | None = None
 
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    url,
-                    content=file_data,
-                    headers={
-                        **self._headers,
-                        "Content-Type": content_type,
-                        "x-upsert": "false",  # Never overwrite existing files.
-                    },
-                )
+        for attempt in range(1, _STORAGE_MAX_RETRIES + 1):
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        url,
+                        content=file_data,
+                        headers={
+                            **self._headers,
+                            "Content-Type": content_type,
+                            "x-upsert": "false",  # Never overwrite existing files.
+                        },
+                    )
 
-                if response.status_code not in (200, 201):
+                if response.status_code in (200, 201):
+                    logger.info(
+                        "storage_upload_success",
+                        bucket=bucket,
+                        path=object_path,
+                        size_bytes=len(file_data),
+                        attempt=attempt,
+                    )
+                    return f"{bucket}/{object_path}"
+
+                # Permanent failures — do not retry 4xx errors.
+                if 400 <= response.status_code < 500:
                     logger.error(
-                        "storage_upload_failed",
+                        "storage_upload_permanent_failure",
                         bucket=bucket,
                         path=object_path,
                         status=response.status_code,
                         body=response.text[:200],
                     )
-                    raise StorageError(f"Upload failed: HTTP {response.status_code}")
+                    raise StorageError(f"Upload rejected: HTTP {response.status_code}")
 
-        except httpx.TimeoutException:
-            logger.error("storage_upload_timeout", bucket=bucket, path=object_path)
-            raise StorageError("File upload timed out. Please try again.")
-        except httpx.RequestError as exc:
-            logger.error("storage_upload_error", error=str(exc))
-            raise StorageError("Storage service unavailable.")
+                # Transient server error — will retry.
+                logger.warning(
+                    "storage_upload_transient_error",
+                    bucket=bucket,
+                    path=object_path,
+                    status=response.status_code,
+                    attempt=attempt,
+                )
+                last_error = StorageError(f"Upload failed: HTTP {response.status_code}")
 
-        logger.info(
-            "storage_upload_success",
+            except httpx.TimeoutException as exc:
+                logger.warning(
+                    "storage_upload_timeout",
+                    bucket=bucket,
+                    path=object_path,
+                    attempt=attempt,
+                )
+                last_error = exc
+            except httpx.ConnectError as exc:
+                logger.warning(
+                    "storage_upload_connect_error",
+                    bucket=bucket,
+                    path=object_path,
+                    attempt=attempt,
+                    error=str(exc),
+                )
+                last_error = exc
+            except httpx.RequestError as exc:
+                # Non-retryable network error.
+                logger.error("storage_upload_request_error", error=str(exc))
+                raise StorageError("Storage service unavailable.") from exc
+
+            if attempt < _STORAGE_MAX_RETRIES:
+                delay = _STORAGE_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.info("storage_upload_retrying", delay=delay, attempt=attempt)
+                await asyncio.sleep(delay)
+
+        logger.error(
+            "storage_upload_all_retries_exhausted",
             bucket=bucket,
             path=object_path,
-            size_bytes=len(file_data),
+            retries=_STORAGE_MAX_RETRIES,
         )
-        return f"{bucket}/{object_path}"
+        raise StorageError(
+            f"File upload failed after {_STORAGE_MAX_RETRIES} attempts. Please try again."
+        ) from last_error
+
+    # ─── Signed URLs ──────────────────────────────────────────────────────────
 
     async def create_signed_url(
         self,
@@ -122,6 +183,7 @@ class StorageService:
         Generates a time-limited signed URL for downloading a private file.
 
         Used to give the Raspberry Pi kiosk temporary access to a print file.
+        Retries on transient network errors.
 
         Args:
             bucket:             Source bucket.
@@ -132,58 +194,86 @@ class StorageService:
             Signed URL string valid for the specified duration.
 
         Raises:
-            StorageError: If the signed URL cannot be created.
+            StorageError: If the signed URL cannot be created after all retries.
         """
         expiry = expires_in_seconds or settings.SIGNED_URL_EXPIRY_SECONDS
         url = f"{self._base_url}/object/sign/{bucket}/{object_path}"
+        last_error: Exception | None = None
 
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(
-                    url,
-                    json={"expiresIn": expiry},
-                    headers=self._headers,
-                )
+        for attempt in range(1, _STORAGE_MAX_RETRIES + 1):
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    response = await client.post(
+                        url,
+                        json={"expiresIn": expiry},
+                        headers=self._headers,
+                    )
 
-                if response.status_code != 200:
+                if response.status_code == 200:
+                    data = response.json()
+                    signed_url = data.get("signedURL") or data.get("signedUrl")
+                    if not signed_url:
+                        raise StorageError("Signed URL missing from response.")
+
+                    # Prepend the Supabase URL if it's a relative path.
+                    if signed_url.startswith("/"):
+                        signed_url = f"{settings.SUPABASE_URL}{signed_url}"
+
+                    return signed_url
+
+                if 400 <= response.status_code < 500:
                     logger.error(
-                        "storage_signed_url_failed",
+                        "storage_signed_url_permanent_failure",
                         bucket=bucket,
                         path=object_path,
                         status=response.status_code,
                     )
                     raise StorageError("Could not generate download URL.")
 
-                data = response.json()
-                signed_url = data.get("signedURL") or data.get("signedUrl")
-                if not signed_url:
-                    raise StorageError("Signed URL missing from response.")
+                logger.warning(
+                    "storage_signed_url_transient_error",
+                    bucket=bucket,
+                    path=object_path,
+                    status=response.status_code,
+                    attempt=attempt,
+                )
+                last_error = StorageError(f"Signed URL failed: HTTP {response.status_code}")
 
-                # Prepend the Supabase URL if it's a relative path.
-                if signed_url.startswith("/"):
-                    signed_url = f"{settings.SUPABASE_URL}{signed_url}"
+            except httpx.TimeoutException as exc:
+                logger.warning(
+                    "storage_signed_url_timeout", bucket=bucket, attempt=attempt
+                )
+                last_error = exc
+            except httpx.RequestError as exc:
+                logger.error("storage_signed_url_request_error", error=str(exc))
+                raise StorageError("Storage service unavailable.") from exc
 
-                return signed_url
+            if attempt < _STORAGE_MAX_RETRIES:
+                delay = _STORAGE_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                await asyncio.sleep(delay)
 
-        except httpx.RequestError as exc:
-            logger.error("storage_signed_url_error", error=str(exc))
-            raise StorageError("Storage service unavailable.")
+        raise StorageError(
+            f"Could not generate download URL after {_STORAGE_MAX_RETRIES} attempts."
+        ) from last_error
+
+    # ─── Delete ───────────────────────────────────────────────────────────────
 
     async def delete_file(self, bucket: str, object_path: str) -> bool:
         """
         Permanently deletes a file from Supabase Storage.
 
-        Called as part of the post-print cleanup workflow (doc 36).
+        Called as part of the post-print cleanup workflow.
+        A 404 response is treated as success (idempotent delete).
 
         Args:
             bucket:       Source bucket.
             object_path:  Path within the bucket.
 
         Returns:
-            True if deleted successfully, False if file not found.
+            True if deleted successfully, False if file was not found.
 
         Raises:
-            StorageError: On unexpected errors.
+            StorageError: On unexpected server errors.
         """
         url = f"{self._base_url}/object/{bucket}/{object_path}"
 
@@ -191,29 +281,31 @@ class StorageService:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.delete(url, headers=self._headers)
 
-                if response.status_code == 404:
-                    logger.warning(
-                        "storage_delete_not_found",
-                        bucket=bucket,
-                        path=object_path,
-                    )
-                    return False
+            if response.status_code == 404:
+                logger.warning(
+                    "storage_delete_not_found",
+                    bucket=bucket,
+                    path=object_path,
+                )
+                return False
 
-                if response.status_code not in (200, 204):
-                    logger.error(
-                        "storage_delete_failed",
-                        bucket=bucket,
-                        path=object_path,
-                        status=response.status_code,
-                    )
-                    raise StorageError(f"Delete failed: HTTP {response.status_code}")
+            if response.status_code not in (200, 204):
+                logger.error(
+                    "storage_delete_failed",
+                    bucket=bucket,
+                    path=object_path,
+                    status=response.status_code,
+                )
+                raise StorageError(f"Delete failed: HTTP {response.status_code}")
 
         except httpx.RequestError as exc:
-            logger.error("storage_delete_error", error=str(exc))
-            raise StorageError("Storage service unavailable.")
+            logger.error("storage_delete_request_error", error=str(exc))
+            raise StorageError("Storage service unavailable.") from exc
 
         logger.info("storage_delete_success", bucket=bucket, path=object_path)
         return True
+
+    # ─── File Existence Check ─────────────────────────────────────────────────
 
     async def file_exists(self, bucket: str, object_path: str) -> bool:
         """
@@ -224,7 +316,7 @@ class StorageService:
             object_path:  Path within the bucket.
 
         Returns:
-            True if the file exists.
+            True if the file exists, False if not found or on network error.
         """
         url = f"{self._base_url}/object/info/{bucket}/{object_path}"
         try:
@@ -233,6 +325,8 @@ class StorageService:
                 return response.status_code == 200
         except httpx.RequestError:
             return False
+
+    # ─── Utilities ────────────────────────────────────────────────────────────
 
     @staticmethod
     def compute_sha256(data: bytes) -> str:
@@ -252,14 +346,14 @@ class StorageService:
     @staticmethod
     def build_object_path(session_id: str, file_id: str) -> str:
         """
-        Generates a deterministic storage path for a file.
+        Generates a deterministic, time-partitioned storage path for a file.
 
         Format: {year}/{month}/{session_id[:8]}/{file_id}.pdf
 
         This structure:
             - Separates files by month for easy lifecycle management.
             - Groups by session prefix for human readability.
-            - Uses the file UUID as the actual filename.
+            - Uses the file UUID as the actual filename (collision-proof).
 
         Args:
             session_id: Guest session ID.
@@ -273,5 +367,5 @@ class StorageService:
         return f"{now.year}/{now.month:02d}/{session_id[:8]}/{file_id}.pdf"
 
 
-# Module-level singleton.
+# Module-level singleton — shared across the application lifetime.
 storage_service = StorageService()

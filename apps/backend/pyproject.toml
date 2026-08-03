@@ -1,5 +1,6 @@
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
@@ -13,6 +14,7 @@ filterwarnings = [
     "error",
     "ignore::DeprecationWarning:pydantic",
     "ignore::DeprecationWarning:jose",
+    "ignore::pytest_asyncio.plugin.PytestDeprecationWarning",
 ]
 
 [tool.ruff]

@@ -146,9 +146,16 @@ class TestPricingEndpoints:
             "/api/v1/pricing/calculate",
             params={"pages": 10, "color_mode": "BW", "paper_size": "A4", "copies": 1},
         )
-        # Will fail with 500 if no pricing rule in DB — acceptable in unit test env
-        # In integration env this returns 200.
-        assert response.status_code in (200, 500)
+        # Returns 200 always: either with data (rule found) or error code PRICE_500
+        # (no active pricing rule in the test DB — seed required for full result).
+        assert response.status_code == 200
+        data = response.json()
+        assert "success" in data
+        if data["success"]:
+            assert "data" in data
+            assert "totalInr" in data["data"]
+        else:
+            assert data["error"]["code"] == "PRICE_500"
 
     async def test_calculate_invalid_color_mode(self, async_client) -> None:
         response = await async_client.get(

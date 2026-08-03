@@ -120,16 +120,17 @@ class PaymentService:
                     job_id=str(existing_job.id),
                     idempotency_key=idem_key,
                 )
-                from app.payments.razorpay import razorpay_provider
-                amount_paise = razorpay_provider.inr_to_paise(existing_payment.amount_inr)
+                # Use provider-agnostic conversion: amount_inr * 100 = paise.
+                amount_paise = int(existing_payment.amount_inr * 100)
                 return {
                     "jobId": str(existing_job.id),
                     "paymentId": str(existing_payment.id),
                     "gatewayOrderId": existing_payment.gateway_order_id,
                     "amountPaise": amount_paise,
-                    "currency": settings.RAZORPAY_CURRENCY,
-                    "keyId": settings.RAZORPAY_KEY_ID,
+                    "currency": "INR",
+                    "keyId": settings.RAZORPAY_KEY_ID if not settings.is_mock_payment else "mock_key",
                     "totalInr": str(existing_job.total_inr),
+                    "isMockMode": settings.is_mock_payment,
                     "idempotent": True,
                 }
 
@@ -197,13 +198,14 @@ class PaymentService:
             payment.id, order_result.gateway_order_id
         )
 
-        # Update gateway field.
+        # Update gateway field — use the active provider's name.
         from sqlalchemy import update as sql_update
         from app.models.payment import Payment as PaymentModel
+        gateway_name = "MOCK" if settings.is_mock_payment else PAYMENT_GATEWAY_RAZORPAY
         await self._db.execute(
             sql_update(PaymentModel)
             .where(PaymentModel.id == payment.id)
-            .values(gateway=PAYMENT_GATEWAY_RAZORPAY)
+            .values(gateway=gateway_name)
         )
 
         logger.info(
@@ -486,18 +488,14 @@ class PaymentService:
             return {"processed": False, "reason": "already_success"}
 
         # Step 5: Verify amount matches stored record.
-        try:
-            # Use Razorpay-specific amount verification.
-            from app.payments.razorpay import razorpay_provider
-            razorpay_provider.verify_amount(
-                razorpay_amount_paise=webhook_result.amount_paise,
-                expected_amount_inr=payment.amount_inr,
-            )
-        except PaymentAmountMismatchError:
+        # Provider-agnostic: convert paise to INR and compare with tolerance.
+        expected_paise = int(payment.amount_inr * 100)
+        if abs(webhook_result.amount_paise - expected_paise) > 1:  # 1 paise tolerance for rounding.
             logger.error(
                 "webhook_amount_mismatch",
                 payment_id=str(payment.id),
                 webhook_paise=webhook_result.amount_paise,
+                expected_paise=expected_paise,
                 expected_inr=str(payment.amount_inr),
             )
             await self._payment_repo.mark_failed(payment.id, "AMOUNT_MISMATCH")

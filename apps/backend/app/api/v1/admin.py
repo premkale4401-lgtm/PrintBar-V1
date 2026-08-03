@@ -1,29 +1,33 @@
 """
 PrintBar Backend — Admin Dashboard & Management Endpoints
 
-GET  /api/v1/admin/dashboard          — Dashboard stats
-GET  /api/v1/admin/jobs               — List print jobs (paginated)
-GET  /api/v1/admin/kiosks             — List all kiosks
-POST /api/v1/admin/kiosks             — Register a new kiosk
-GET  /api/v1/admin/kiosks/{id}        — Kiosk details
+GET  /api/v1/admin/dashboard              — Dashboard stats
+GET  /api/v1/admin/jobs                   — List print jobs (paginated, filterable)
+GET  /api/v1/admin/kiosks                 — List all kiosks
+POST /api/v1/admin/kiosks                 — Register a new kiosk
+GET  /api/v1/admin/kiosks/{id}            — Single kiosk detail + recent heartbeats
 POST /api/v1/admin/kiosks/{id}/rotate-key — Rotate kiosk API key
-GET  /api/v1/admin/pricing            — Get all pricing rules
-POST /api/v1/admin/pricing            — Create new pricing rule (deactivates old)
-GET  /api/v1/admin/audit-logs         — View audit log
+GET  /api/v1/admin/pricing                — Get all pricing rules
+POST /api/v1/admin/pricing                — Create new pricing rule (deactivates old)
+GET  /api/v1/admin/audit-logs             — View audit log
+GET  /api/v1/admin/users                  — List platform users (admin only)
 """
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.database.session import get_db
 from app.dependencies import get_current_admin, require_super_admin
 from app.models.audit_log import AuditLog
+from app.models.heartbeat_log import HeartbeatLog
 from app.models.kiosk import Kiosk
 from app.models.payment import Payment
 from app.models.print_job import PrintJob
@@ -36,6 +40,32 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
+# ─── Request Schemas ──────────────────────────────────────────────────────────
+
+class CreateKioskRequest(BaseModel):
+    """Request body for registering a new kiosk."""
+    name: str = Field(..., min_length=1, max_length=100, description="Human-readable kiosk name.")
+    location: str = Field(..., min_length=1, max_length=200, description="Physical location description.")
+    city: str = Field(default="", max_length=100, description="City where the kiosk is deployed.")
+    notes: str | None = Field(default=None, max_length=500, description="Optional operator notes.")
+    latitude: float | None = Field(default=None, description="GPS latitude.")
+    longitude: float | None = Field(default=None, description="GPS longitude.")
+
+
+class CreatePricingRuleRequest(BaseModel):
+    """Request body for creating a new pricing rule."""
+    name: str = Field(..., min_length=1, max_length=100, description="Rule name (e.g. 'Standard 2026').")
+    bwPriceInr: str = Field(..., description="Black & white price per page in INR (Decimal string).")
+    colorPriceInr: str = Field(..., description="Color price per page in INR (Decimal string).")
+    a3Multiplier: str = Field(default="1.75", description="A3 size price multiplier.")
+    legalMultiplier: str = Field(default="1.25", description="Legal size price multiplier.")
+    duplexDiscount: str = Field(default="0.00", description="Duplex discount per page in INR.")
+    gstPercent: str = Field(default="18.00", description="GST percentage to apply.")
+    notes: str | None = Field(default=None, max_length=500, description="Optional rule notes.")
+
+
+# ─── Dashboard ────────────────────────────────────────────────────────────────
+
 @router.get("/dashboard", summary="Admin dashboard statistics")
 async def get_dashboard(
     current_user: User = Depends(get_current_admin),
@@ -44,11 +74,8 @@ async def get_dashboard(
     """
     Returns aggregated platform statistics for the admin dashboard.
 
-    Includes:
-        - Today's job and revenue counts
-        - Total lifetime stats
-        - Active kiosk count
-        - Recent jobs
+    Includes today's job and revenue counts, total lifetime stats,
+    active kiosk count, queued jobs, and the 10 most recent jobs.
     """
     today = datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -76,7 +103,7 @@ async def get_dashboard(
     )
     total_jobs = total_jobs_result.scalar() or 0
 
-    # Active kiosks.
+    # Active kiosks (ONLINE or PRINTING).
     active_kiosks_result = await db.execute(
         select(func.count(Kiosk.id)).where(
             Kiosk.is_active.is_(True),
@@ -124,22 +151,31 @@ async def get_dashboard(
     }
 
 
+# ─── Jobs ─────────────────────────────────────────────────────────────────────
+
 @router.get("/jobs", summary="List print jobs")
 async def list_jobs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    status: str | None = Query(default=None),
+    status: str | None = Query(default=None, description="Filter by job status."),
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Returns paginated list of print jobs."""
+    """Returns a paginated list of print jobs, optionally filtered by status."""
     query = select(PrintJob)
     if status:
         query = query.where(PrintJob.status == status.upper())
 
     query = query.order_by(PrintJob.created_at.desc())
-    query = query.offset((page - 1) * page_size).limit(page_size)
 
+    # Total count for pagination.
+    count_query = select(func.count(PrintJob.id))
+    if status:
+        count_query = count_query.where(PrintJob.status == status.upper())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    query = query.offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
     jobs = result.scalars().all()
 
@@ -164,16 +200,19 @@ async def list_jobs(
             ],
             "page": page,
             "pageSize": page_size,
+            "total": total,
         },
     }
 
+
+# ─── Kiosks ───────────────────────────────────────────────────────────────────
 
 @router.get("/kiosks", summary="List all kiosks")
 async def list_kiosks(
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Returns all registered kiosks with live connection status."""
+    """Returns all registered kiosks with live connection status and health metrics."""
     repo = KioskRepository(db)
     kiosks = await repo.get_all_active()
 
@@ -199,27 +238,103 @@ async def list_kiosks(
     }
 
 
+@router.get("/kiosks/{kiosk_id}", summary="Get kiosk detail")
+async def get_kiosk_detail(
+    kiosk_id: uuid.UUID,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Returns detailed information for a single kiosk including recent heartbeat history."""
+    repo = KioskRepository(db)
+    kiosk = await repo.get_by_id(kiosk_id)
+
+    if not kiosk:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail={"code": "KIOSK_001", "message": "Kiosk not found."})
+
+    # Recent heartbeat logs (last 20).
+    heartbeat_result = await db.execute(
+        select(HeartbeatLog)
+        .where(HeartbeatLog.kiosk_id == kiosk_id)
+        .order_by(HeartbeatLog.created_at.desc())
+        .limit(20)
+    )
+    heartbeats = [
+        {
+            "receivedAt": h.created_at.isoformat() if h.created_at else None,
+            "cpuPercent": h.cpu_percent,
+            "ramPercent": h.ram_percent,
+            "diskPercent": h.disk_percent,
+            "temperatureC": h.temperature_c,
+            "printerStatus": h.printer_status,
+        }
+        for h in heartbeat_result.scalars().all()
+    ]
+
+    # Job counts for this kiosk.
+    jobs_today_result = await db.execute(
+        select(func.count(PrintJob.id)).where(
+            PrintJob.kiosk_id == kiosk_id,
+            PrintJob.status == "COMPLETED",
+            PrintJob.completed_at >= datetime.now(tz=UTC).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ).isoformat(),
+        )
+    )
+    jobs_today = jobs_today_result.scalar() or 0
+
+    jobs_total_result = await db.execute(
+        select(func.count(PrintJob.id)).where(
+            PrintJob.kiosk_id == kiosk_id,
+            PrintJob.status == "COMPLETED",
+        )
+    )
+    jobs_total = jobs_total_result.scalar() or 0
+
+    return {
+        "success": True,
+        "data": {
+            "kioskId": str(kiosk.id),
+            "name": kiosk.name,
+            "location": kiosk.location,
+            "city": kiosk.city,
+            "status": kiosk.status,
+            "wsConnected": ws_manager.is_connected(str(kiosk.id)),
+            "isActive": kiosk.is_active,
+            "appVersion": kiosk.app_version,
+            "cpuPercent": kiosk.cpu_percent,
+            "ramPercent": kiosk.ram_percent,
+            "diskPercent": kiosk.disk_percent,
+            "temperatureC": kiosk.temperature_c,
+            "lastHeartbeat": kiosk.last_heartbeat,
+            "jobsCompletedToday": jobs_today,
+            "jobsCompletedTotal": jobs_total,
+            "recentHeartbeats": heartbeats,
+        },
+    }
+
+
 @router.post("/kiosks", summary="Register a new kiosk", status_code=201)
 async def create_kiosk(
-    request,
+    body: CreateKioskRequest,
     current_user: User = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """
     Registers a new kiosk and returns the one-time API key.
 
-    The API key is shown ONCE. Store it immediately.
+    The API key is shown ONCE and never retrievable again.
+    Store it immediately in the kiosk's configuration file.
     """
-    body = await request.json()
     repo = KioskRepository(db)
 
     kiosk, raw_key = await repo.create(
-        name=body["name"],
-        location=body["location"],
-        city=body.get("city", ""),
-        notes=body.get("notes"),
-        latitude=body.get("latitude"),
-        longitude=body.get("longitude"),
+        name=body.name,
+        location=body.location,
+        city=body.city,
+        notes=body.notes,
+        latitude=body.latitude,
+        longitude=body.longitude,
     )
 
     logger.info("kiosk_registered_via_admin", kiosk_id=str(kiosk.id), name=kiosk.name)
@@ -230,7 +345,7 @@ async def create_kiosk(
             "kioskId": str(kiosk.id),
             "name": kiosk.name,
             "apiKey": raw_key,
-            "warning": "This API key is shown ONCE. Copy it now and store it securely.",
+            "warning": "This API key is shown ONCE. Copy it now and store it securely in kiosk.yaml.",
         },
     }
 
@@ -241,26 +356,35 @@ async def rotate_kiosk_key(
     current_user: User = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Rotates the API key for a kiosk. Old key is immediately revoked."""
+    """
+    Rotates the API key for a kiosk. The old key is immediately revoked.
+
+    The kiosk will disconnect on the next heartbeat timeout and must
+    be reconfigured with the new key before reconnecting.
+    """
     repo = KioskRepository(db)
     raw_key = await repo.rotate_api_key(kiosk_id)
+
+    logger.info("kiosk_api_key_rotated", kiosk_id=str(kiosk_id))
 
     return {
         "success": True,
         "data": {
             "kioskId": str(kiosk_id),
             "apiKey": raw_key,
-            "warning": "This API key is shown ONCE. Copy it now.",
+            "warning": "This API key is shown ONCE. Update kiosk.yaml immediately.",
         },
     }
 
+
+# ─── Pricing ──────────────────────────────────────────────────────────────────
 
 @router.get("/pricing", summary="List pricing rules")
 async def list_pricing(
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Returns all pricing rules in reverse chronological order."""
+    """Returns all pricing rules in reverse chronological order. Only one can be active."""
     result = await db.execute(
         select(PricingRule).order_by(PricingRule.created_at.desc())
     )
@@ -274,9 +398,13 @@ async def list_pricing(
                 "name": r.name,
                 "bwPriceInr": str(r.bw_price_inr),
                 "colorPriceInr": str(r.color_price_inr),
+                "a3Multiplier": str(r.a3_multiplier),
+                "legalMultiplier": str(r.legal_multiplier),
+                "duplexDiscount": str(r.duplex_discount),
                 "gstPercent": str(r.gst_percent),
                 "isActive": r.is_active,
                 "validFrom": r.valid_from,
+                "validUntil": r.valid_until,
                 "notes": r.notes,
             }
             for r in rules
@@ -286,20 +414,17 @@ async def list_pricing(
 
 @router.post("/pricing", summary="Create new pricing rule", status_code=201)
 async def create_pricing_rule(
-    request,
+    body: CreatePricingRuleRequest,
     current_user: User = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """
     Creates a new pricing rule and deactivates all existing active rules.
 
-    Only one pricing rule may be active at a time.
+    Only one pricing rule can be active at a time.
+    The previous rule is archived with a valid_until timestamp.
     """
-    from decimal import Decimal
-    body = await request.json()
-
     # Deactivate existing active rules.
-    from sqlalchemy import update
     await db.execute(
         update(PricingRule)
         .where(PricingRule.is_active.is_(True))
@@ -307,16 +432,16 @@ async def create_pricing_rule(
     )
 
     rule = PricingRule(
-        name=body["name"],
-        bw_price_inr=Decimal(str(body["bwPriceInr"])),
-        color_price_inr=Decimal(str(body["colorPriceInr"])),
-        a3_multiplier=Decimal(str(body.get("a3Multiplier", "1.75"))),
-        legal_multiplier=Decimal(str(body.get("legalMultiplier", "1.25"))),
-        duplex_discount=Decimal(str(body.get("duplexDiscount", "0.00"))),
-        gst_percent=Decimal(str(body.get("gstPercent", "18.00"))),
+        name=body.name,
+        bw_price_inr=Decimal(body.bwPriceInr),
+        color_price_inr=Decimal(body.colorPriceInr),
+        a3_multiplier=Decimal(body.a3Multiplier),
+        legal_multiplier=Decimal(body.legalMultiplier),
+        duplex_discount=Decimal(body.duplexDiscount),
+        gst_percent=Decimal(body.gstPercent),
         is_active=True,
         valid_from=datetime.now(tz=UTC).isoformat(),
-        notes=body.get("notes"),
+        notes=body.notes,
     )
     db.add(rule)
     await db.flush()
@@ -325,22 +450,34 @@ async def create_pricing_rule(
 
     return {
         "success": True,
-        "data": {"id": str(rule.id), "name": rule.name, "active": True},
+        "data": {
+            "id": str(rule.id),
+            "name": rule.name,
+            "active": True,
+        },
     }
 
+
+# ─── Audit Logs ───────────────────────────────────────────────────────────────
 
 @router.get("/audit-logs", summary="View audit log")
 async def get_audit_logs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    action: str | None = Query(default=None),
+    action: str | None = Query(default=None, description="Filter by action name (partial match)."),
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Returns paginated audit log entries."""
+    """Returns a paginated audit log. Filterable by action name."""
     query = select(AuditLog)
     if action:
         query = query.where(AuditLog.action.ilike(f"%{action}%"))
+
+    count_query = select(func.count(AuditLog.id))
+    if action:
+        count_query = count_query.where(AuditLog.action.ilike(f"%{action}%"))
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
 
     query = query.order_by(AuditLog.created_at.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
@@ -365,4 +502,53 @@ async def get_audit_logs(
         ],
         "page": page,
         "pageSize": page_size,
+        "total": total,
+    }
+
+
+# ─── Users ────────────────────────────────────────────────────────────────────
+
+@router.get("/users", summary="List platform users")
+async def list_users(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    current_user: User = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Returns a paginated list of admin platform users.
+
+    Super admin only. Kiosk operators and end-users (guests) are not stored
+    as User records — only admin accounts registered via seed_db.py appear here.
+    """
+    count_result = await db.execute(select(func.count(User.id)))
+    total = count_result.scalar() or 0
+
+    result = await db.execute(
+        select(User)
+        .order_by(User.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    users = result.scalars().all()
+
+    return {
+        "success": True,
+        "data": {
+            "users": [
+                {
+                    "id": str(u.id),
+                    "name": u.name,
+                    "email": u.email,
+                    "role": u.role,
+                    "isActive": u.is_active,
+                    "lastLoginAt": u.last_login_at,
+                    "createdAt": u.created_at.isoformat() if u.created_at else None,
+                }
+                for u in users
+            ],
+            "page": page,
+            "pageSize": page_size,
+            "total": total,
+        },
     }
