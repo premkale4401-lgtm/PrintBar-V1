@@ -106,15 +106,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("database_migrations_verified")
 
     # ─── Redis Validation ─────────────────────────────────────────────────────
-    import redis.asyncio as aioredis
-    try:
-        redis_client = aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=2)  # type: ignore[no-untyped-call]
-        await redis_client.ping()
-        await redis_client.aclose()
-        log.info("redis_connection_verified")
-    except Exception as e:
-        log.error("redis_not_reachable_at_startup", error=str(e))
-        raise RuntimeError("Startup failed: Redis is not reachable.") from e
+    if settings.REDIS_URL:
+        import redis.asyncio as aioredis
+        try:
+            redis_client = aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=2)  # type: ignore[no-untyped-call]
+            await redis_client.ping()
+            await redis_client.aclose()
+            log.info("redis_connection_verified")
+        except Exception as e:
+            log.error("redis_not_reachable_at_startup", error=str(e))
+            raise RuntimeError("Startup failed: Redis is not reachable.") from e
+    else:
+        log.info("redis_skipped_in_development")
 
     # Start background workers.
     from app.workers.background import start_all_workers, stop_all_workers
@@ -202,6 +205,15 @@ def create_application() -> FastAPI:
         from prometheus_client import make_asgi_app
         metrics_app = make_asgi_app()
         app.mount("/metrics", metrics_app)
+
+    # ─── Local Storage Fallback ────────────────────────────────────────────────
+    if not settings.SUPABASE_URL:
+        from fastapi.staticfiles import StaticFiles
+        import os
+        
+        # Ensure the local storage directory exists
+        os.makedirs("data/storage", exist_ok=True)
+        app.mount("/local-storage", StaticFiles(directory="data/storage"), name="local_storage")
 
     return app
 

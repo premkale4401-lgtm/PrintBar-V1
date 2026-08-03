@@ -42,7 +42,7 @@ _STORAGE_MAX_RETRIES: int = 3
 _STORAGE_RETRY_BASE_DELAY: float = 1.0  # seconds — doubles each attempt
 
 
-class StorageService:
+class SupabaseStorageService:
     """
     Wraps Supabase Storage REST API for PrintBar file operations.
 
@@ -367,5 +367,82 @@ class StorageService:
         return f"{now.year}/{now.month:02d}/{session_id[:8]}/{file_id}.pdf"
 
 
+class LocalStorageService:
+    """
+    Local filesystem storage fallback for development.
+    Does not require Supabase or external networking.
+    """
+    def __init__(self) -> None:
+        import os
+        self.base_dir = os.path.abspath(os.path.join(os.getcwd(), "data", "storage"))
+        os.makedirs(self.base_dir, exist_ok=True)
+        # Note: In production this would be dangerous, but this is exclusively for local dev.
+        self._base_url = "http://localhost:8000/local-storage"
+
+    async def upload_file(
+        self,
+        bucket: str,
+        object_path: str,
+        file_data: bytes,
+        content_type: str = "application/pdf",
+    ) -> str:
+        import os
+        full_path = os.path.join(self.base_dir, bucket, object_path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        
+        try:
+            with open(full_path, "wb") as f:
+                f.write(file_data)
+            logger.info(
+                "local_storage_upload_success",
+                bucket=bucket,
+                path=object_path,
+                size_bytes=len(file_data)
+            )
+            return f"{bucket}/{object_path}"
+        except Exception as e:
+            logger.error("local_storage_upload_failed", error=str(e))
+            raise StorageError(f"Failed to write to local storage: {str(e)}") from e
+
+    async def create_signed_url(
+        self,
+        bucket: str,
+        object_path: str,
+        expires_in_seconds: int | None = None,
+    ) -> str:
+        # We don't actually sign URLs in dev, we just point to the open local endpoint.
+        # This matches the kiosk's expectation of receiving a GET-able URL.
+        # Path format: /local-storage/bucket/path/to/file.pdf
+        return f"{self._base_url}/{bucket}/{object_path}"
+
+    async def delete_file(self, bucket: str, object_path: str) -> bool:
+        import os
+        full_path = os.path.join(self.base_dir, bucket, object_path)
+        if os.path.exists(full_path):
+            try:
+                os.remove(full_path)
+                logger.info("local_storage_delete_success", bucket=bucket, path=object_path)
+                return True
+            except Exception as e:
+                logger.error("local_storage_delete_failed", error=str(e))
+                raise StorageError(f"Failed to delete local file: {str(e)}") from e
+        
+        logger.warning("local_storage_delete_not_found", bucket=bucket, path=object_path)
+        return False
+
+    async def file_exists(self, bucket: str, object_path: str) -> bool:
+        import os
+        full_path = os.path.join(self.base_dir, bucket, object_path)
+        return os.path.exists(full_path)
+
+    @staticmethod
+    def compute_sha256(data: bytes) -> str:
+        return SupabaseStorageService.compute_sha256(data)
+
+    @staticmethod
+    def build_object_path(session_id: str, file_id: str) -> str:
+        return SupabaseStorageService.build_object_path(session_id, file_id)
+
+
 # Module-level singleton — shared across the application lifetime.
-storage_service = StorageService()
+storage_service = SupabaseStorageService() if settings.SUPABASE_URL else LocalStorageService()

@@ -34,43 +34,44 @@ def upgrade() -> None:
         "END $$;"
     )
 
-    op.execute(_create_enum_safe.format(
-        name="user_role_enum", values="'ADMIN', 'SUPER_ADMIN'"
-    ))
-    op.execute(_create_enum_safe.format(
-        name="kiosk_status_enum",
-        values="'ONLINE', 'OFFLINE', 'PRINTING', 'MAINTENANCE', 'ERROR'"
-    ))
-    op.execute(_create_enum_safe.format(
-        name="printer_status_enum",
-        values="'READY', 'PRINTING', 'OFFLINE', 'PAPER_JAM', 'OUT_OF_PAPER', 'OUT_OF_TONER'"
-    ))
-    op.execute(_create_enum_safe.format(
-        name="print_job_status_enum",
-        values=(
-            "'UPLOADED', 'VALIDATED', 'PAYMENT_PENDING', 'PAYMENT_SUCCESS', "
-            "'QUEUED', 'ASSIGNED', 'DOWNLOADING', 'READY_TO_PRINT', "
-            "'PRINTING', 'COMPLETED', 'FAILED', 'CANCELLED', "
-            "'PAYMENT_FAILED', 'DOWNLOAD_FAILED'"
-        )
-    ))
-    op.execute(_create_enum_safe.format(
-        name="payment_status_enum",
-        values="'CREATED', 'PENDING', 'PROCESSING', 'SUCCESS', 'FAILED', 'EXPIRED', 'REFUNDED'"
-    ))
-    op.execute(_create_enum_safe.format(name="color_mode_enum", values="'BW', 'COLOR'"))
-    op.execute(_create_enum_safe.format(
-        name="paper_size_enum", values="'A4', 'A3', 'LETTER', 'LEGAL'"
-    ))
-    op.execute(_create_enum_safe.format(
-        name="system_event_severity_enum",
-        values="'INFO', 'WARNING', 'ERROR', 'CRITICAL'"
-    ))
+    if op.get_context().dialect.name == "postgresql":
+        op.execute(_create_enum_safe.format(
+            name="user_role_enum", values="'ADMIN', 'SUPER_ADMIN'"
+        ))
+        op.execute(_create_enum_safe.format(
+            name="kiosk_status_enum",
+            values="'ONLINE', 'OFFLINE', 'PRINTING', 'MAINTENANCE', 'ERROR'"
+        ))
+        op.execute(_create_enum_safe.format(
+            name="printer_status_enum",
+            values="'READY', 'PRINTING', 'OFFLINE', 'PAPER_JAM', 'OUT_OF_PAPER', 'OUT_OF_TONER'"
+        ))
+        op.execute(_create_enum_safe.format(
+            name="print_job_status_enum",
+            values=(
+                "'UPLOADED', 'VALIDATED', 'PAYMENT_PENDING', 'PAYMENT_SUCCESS', "
+                "'QUEUED', 'ASSIGNED', 'DOWNLOADING', 'READY_TO_PRINT', "
+                "'PRINTING', 'COMPLETED', 'FAILED', 'CANCELLED', "
+                "'PAYMENT_FAILED', 'DOWNLOAD_FAILED'"
+            )
+        ))
+        op.execute(_create_enum_safe.format(
+            name="payment_status_enum",
+            values="'CREATED', 'PENDING', 'PROCESSING', 'SUCCESS', 'FAILED', 'EXPIRED', 'REFUNDED'"
+        ))
+        op.execute(_create_enum_safe.format(name="color_mode_enum", values="'BW', 'COLOR'"))
+        op.execute(_create_enum_safe.format(
+            name="paper_size_enum", values="'A4', 'A3', 'LETTER', 'LEGAL'"
+        ))
+        op.execute(_create_enum_safe.format(
+            name="system_event_severity_enum",
+            values="'INFO', 'WARNING', 'ERROR', 'CRITICAL'"
+        ))
 
     # ─── users ────────────────────────────────────────────────────────────────
     op.create_table(
         "users",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("email", sa.String(254), nullable=False),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("password_hash", sa.String(512), nullable=False),
@@ -88,7 +89,7 @@ def upgrade() -> None:
     # ─── kiosks ───────────────────────────────────────────────────────────────
     op.create_table(
         "kiosks",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("location", sa.String(512), nullable=False),
         sa.Column("city", sa.String(100), nullable=False, server_default=""),
@@ -116,7 +117,7 @@ def upgrade() -> None:
     # ─── printers ─────────────────────────────────────────────────────────────
     op.create_table(
         "printers",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("kiosk_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("kiosks.id", ondelete="CASCADE"), nullable=False),
         sa.Column("cups_name", sa.String(255), nullable=False),
         sa.Column("manufacturer", sa.String(100), nullable=False, server_default=""),
@@ -141,7 +142,7 @@ def upgrade() -> None:
     # ─── uploaded_files ───────────────────────────────────────────────────────
     op.create_table(
         "uploaded_files",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("session_id", sa.String(128), nullable=False),
         sa.Column("storage_path", sa.String(1024), nullable=True),
         sa.Column("storage_bucket", sa.String(128), nullable=False),
@@ -167,7 +168,7 @@ def upgrade() -> None:
     # ─── print_jobs ───────────────────────────────────────────────────────────
     op.create_table(
         "print_jobs",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("session_id", sa.String(128), nullable=False),
         sa.Column("uploaded_file_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("uploaded_files.id", ondelete="RESTRICT"), nullable=False),
         sa.Column("kiosk_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("kiosks.id", ondelete="SET NULL"), nullable=True),
@@ -205,7 +206,7 @@ def upgrade() -> None:
     # ─── payments ─────────────────────────────────────────────────────────────
     op.create_table(
         "payments",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("print_job_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("print_jobs.id", ondelete="RESTRICT"), nullable=False),
         sa.Column("gateway", sa.String(64), nullable=False, server_default="EASEBUZZ"),
         sa.Column("gateway_order_id", sa.String(256), nullable=True),
@@ -240,7 +241,7 @@ def upgrade() -> None:
     # ─── payment_webhooks ─────────────────────────────────────────────────────
     op.create_table(
         "payment_webhooks",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("payment_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("payments.id", ondelete="SET NULL"), nullable=True),
         sa.Column("gateway_txn_id", sa.String(256), nullable=True),
         sa.Column("event_type", sa.String(128), nullable=False, server_default=""),
@@ -263,7 +264,7 @@ def upgrade() -> None:
     # ─── pricing_rules ────────────────────────────────────────────────────────
     op.create_table(
         "pricing_rules",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("bw_price_inr", sa.Numeric(8, 2), nullable=False),
         sa.Column("color_price_inr", sa.Numeric(8, 2), nullable=False),
@@ -285,7 +286,7 @@ def upgrade() -> None:
     # ─── heartbeat_logs ───────────────────────────────────────────────────────
     op.create_table(
         "heartbeat_logs",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("kiosk_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("kiosks.id", ondelete="CASCADE"), nullable=False),
         sa.Column("app_version", sa.String(32), nullable=True),
         sa.Column("cpu_percent", sa.Float(), nullable=True),
@@ -306,7 +307,7 @@ def upgrade() -> None:
     # ─── audit_logs ───────────────────────────────────────────────────────────
     op.create_table(
         "audit_logs",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("actor_user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
         sa.Column("actor_kiosk_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("kiosks.id", ondelete="SET NULL"), nullable=True),
         sa.Column("actor_type", sa.String(16), nullable=False, server_default="SYSTEM"),
@@ -332,7 +333,7 @@ def upgrade() -> None:
     # ─── system_events ────────────────────────────────────────────────────────
     op.create_table(
         "system_events",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("event_type", sa.String(128), nullable=False),
         sa.Column("severity", postgresql.ENUM("INFO", "WARNING", "ERROR", "CRITICAL", name="system_event_severity_enum", create_type=False), nullable=False, server_default="INFO"),
         sa.Column("source", sa.String(128), nullable=False, server_default="backend"),
@@ -352,7 +353,7 @@ def upgrade() -> None:
     # ─── api_keys ─────────────────────────────────────────────────────────────
     op.create_table(
         "api_keys",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("kiosk_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("kiosks.id", ondelete="CASCADE"), nullable=False),
         sa.Column("key_hash", sa.String(128), nullable=False),
         sa.Column("key_prefix", sa.String(16), nullable=False),
@@ -374,7 +375,7 @@ def upgrade() -> None:
     # ─── refresh_tokens ───────────────────────────────────────────────────────
     op.create_table(
         "refresh_tokens",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("token_hash", sa.String(128), nullable=False),
         sa.Column("expires_at", sa.String(50), nullable=False),

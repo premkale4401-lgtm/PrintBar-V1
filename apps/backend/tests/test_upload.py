@@ -18,6 +18,7 @@ import pytest
 from app.exceptions.base import (
     FileTooLargeError,
     InvalidPDFError,
+    SpoofedExtensionError,
     TooManyPagesError,
     UnsupportedFileTypeError,
 )
@@ -96,7 +97,7 @@ class TestPDFValidatorStep3MagicBytes:
 
     def test_missing_magic_bytes_raises(self) -> None:
         validator = PDFValidator()
-        with pytest.raises(InvalidPDFError):
+        with pytest.raises(SpoofedExtensionError):
             validator.validate("doc.pdf", "application/pdf", b"NOPE" + b"\x00" * 100)
 
 
@@ -198,7 +199,7 @@ async def test_upload_valid_pdf_succeeds(async_client) -> None:
     # Mock Supabase Storage and DB flush so we don't need real infrastructure.
     with (
         patch(
-            "app.storage.service.StorageService.upload_file",
+            "app.storage.service.SupabaseStorageService.upload_file",
             new_callable=AsyncMock,
             return_value="print-files/2026/08/aabbccdd/test.pdf",
         ),

@@ -13,14 +13,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.storage.service import StorageService
+from app.storage.service import SupabaseStorageService, StorageError
 
 # ─── Static Method Tests ──────────────────────────────────────────────────────
 
 def test_compute_sha256_returns_hex_string():
     """SHA-256 of known bytes must produce a 64-char hex string."""
     data = b"hello world"
-    result = StorageService.compute_sha256(data)
+    result = SupabaseStorageService.compute_sha256(data)
     assert isinstance(result, str)
     assert len(result) == 64  # SHA-256 produces 32 bytes = 64 hex chars
     # Verify against known correct hash for "hello world".
@@ -29,7 +29,7 @@ def test_compute_sha256_returns_hex_string():
 
 def test_compute_sha256_empty_bytes():
     """SHA-256 of empty bytes must return the known SHA-256 of empty string."""
-    result = StorageService.compute_sha256(b"")
+    result = SupabaseStorageService.compute_sha256(b"")
     assert result == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 
@@ -37,7 +37,7 @@ def test_build_object_path_format():
     """build_object_path must produce a path matching the expected format."""
     session_id = "abc12345-test-session"
     file_id = "f47ac10b-58cc-4372-a567-0e02b2c3d479"
-    path = StorageService.build_object_path(session_id, file_id)
+    path = SupabaseStorageService.build_object_path(session_id, file_id)
 
     parts = path.split("/")
     assert len(parts) == 4
@@ -50,7 +50,7 @@ def test_build_object_path_format():
 
 def test_build_object_path_truncates_session_id():
     """Session ID longer than 8 chars must be truncated to 8 in the path."""
-    path = StorageService.build_object_path("abcdefghijklmnop", "file-id-here")
+    path = SupabaseStorageService.build_object_path("abcdefghijklmnop", "file-id-here")
     assert "/abcdefgh/" in path
 
 
@@ -62,7 +62,7 @@ async def test_upload_file_success_first_attempt():
     mock_response = MagicMock()
     mock_response.status_code = 201
 
-    service = StorageService()
+    service = SupabaseStorageService()
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -88,7 +88,7 @@ async def test_upload_file_raises_on_permanent_4xx():
     mock_response.status_code = 400
     mock_response.text = "Bad Request"
 
-    service = StorageService()
+    service = SupabaseStorageService()
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -115,7 +115,7 @@ async def test_create_signed_url_raises_when_url_missing():
     mock_response.status_code = 200
     mock_response.json = MagicMock(return_value={"error": "no url here"})
 
-    service = StorageService()
+    service = SupabaseStorageService()
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -129,15 +129,15 @@ async def test_create_signed_url_raises_when_url_missing():
                 object_path="2026/08/test/file.pdf",
             )
 
-
 @pytest.mark.asyncio
+@patch("app.storage.service.settings.SUPABASE_URL", "https://supabase.example.com")
 async def test_create_signed_url_prepends_base_url_for_relative_path():
     """create_signed_url must prepend SUPABASE_URL to relative signed URLs."""
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json = MagicMock(return_value={"signedURL": "/storage/v1/object/sign/bucket/path?token=abc"})
 
-    service = StorageService()
+    service = SupabaseStorageService()
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -162,7 +162,7 @@ async def test_delete_file_returns_false_on_404():
     mock_response = MagicMock()
     mock_response.status_code = 404
 
-    service = StorageService()
+    service = SupabaseStorageService()
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -181,7 +181,7 @@ async def test_delete_file_returns_true_on_success():
     mock_response = MagicMock()
     mock_response.status_code = 200
 
-    service = StorageService()
+    service = SupabaseStorageService()
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)

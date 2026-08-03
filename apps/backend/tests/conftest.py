@@ -87,17 +87,17 @@ def mock_storage():
     """Mocks Supabase Storage to prevent real network calls in tests."""
     with (
         patch(
-            "app.storage.service.StorageService.upload_file",
+            "app.storage.service.SupabaseStorageService.upload_file",
             new_callable=AsyncMock,
             return_value="print-files/test/path.pdf",
         ),
         patch(
-            "app.storage.service.StorageService.delete_file",
+            "app.storage.service.SupabaseStorageService.delete_file",
             new_callable=AsyncMock,
             return_value=True,
         ),
         patch(
-            "app.storage.service.StorageService.create_signed_url",
+            "app.storage.service.SupabaseStorageService.create_signed_url",
             new_callable=AsyncMock,
             return_value="https://supabase.example.com/signed-url",
         ),

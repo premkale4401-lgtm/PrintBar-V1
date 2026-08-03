@@ -25,8 +25,10 @@ from app.database.base import Base  # noqa: F401
 
 config = context.config
 
-# Override the sqlalchemy.url with the environment variable.
-database_url = os.environ.get("DATABASE_URL")
+# Override the sqlalchemy.url with the environment variable or defaults.
+from app.core.config import get_settings
+database_url = os.environ.get("DATABASE_URL") or get_settings().DATABASE_URL
+
 if not database_url:
     raise RuntimeError("DATABASE_URL environment variable is required for migrations.")
 

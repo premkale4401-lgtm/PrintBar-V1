@@ -46,8 +46,8 @@ class Settings(BaseSettings):
 
     # ─── Database ──────────────────────────────────────────────────────────────
     DATABASE_URL: str = Field(
-        ...,
-        description="Async PostgreSQL connection string. Example: postgresql+asyncpg://user:pass@host/db",
+        default="sqlite+aiosqlite:///printbar.db",
+        description="Async PostgreSQL connection string or SQLite for development. Example: postgresql+asyncpg://user:pass@host/db",
     )
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
@@ -56,16 +56,16 @@ class Settings(BaseSettings):
 
     # ─── Redis ─────────────────────────────────────────────────────────────────
     REDIS_URL: str = Field(
-        ...,
-        description="Redis connection URL. Example: redis://localhost:6379/0",
+        default="",
+        description="Redis connection URL. Example: redis://localhost:6379/0. Optional in development.",
     )
     REDIS_MAX_CONNECTIONS: int = 20
 
     # ─── Supabase Storage ──────────────────────────────────────────────────────
-    SUPABASE_URL: str = Field(..., description="Supabase project URL")
+    SUPABASE_URL: str = Field(default="", description="Supabase project URL. Optional in development.")
     SUPABASE_SERVICE_ROLE_KEY: str = Field(
-        ...,
-        description="Supabase service role key (never the anon key). Never exposed to frontend.",
+        default="",
+        description="Supabase service role key (never the anon key). Optional in development.",
     )
     STORAGE_BUCKET_PRINT_FILES: str = "print-files"
     STORAGE_BUCKET_RECEIPTS: str = "receipts"
@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     SIGNED_URL_EXPIRY_SECONDS: int = 300  # 5 minutes
 
     # ─── JWT ───────────────────────────────────────────────────────────────────
-    JWT_SECRET: str = Field(..., description="Secret key for signing JWTs. Min 64 chars.")
+    JWT_SECRET: str = Field(default="dev_secret_key_needs_64_characters" + "a" * 30, description="Secret key for signing JWTs. Min 64 chars.")
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
@@ -122,7 +122,7 @@ class Settings(BaseSettings):
     RAZORPAY_CURRENCY: str = "INR"
 
     # ─── WebSocket ─────────────────────────────────────────────────────────────
-    WS_SECRET: str = Field(..., description="Shared secret for WebSocket message signing")
+    WS_SECRET: str = Field(default="dev_ws_secret_needs_32_chars_123", description="Shared secret for WebSocket message signing")
     WS_HEARTBEAT_INTERVAL_SECONDS: int = 30
     WS_KIOSK_OFFLINE_THRESHOLD_SECONDS: int = 90
 
@@ -184,10 +184,24 @@ class Settings(BaseSettings):
         """
         self.validate_payment_provider_credentials()
 
-        if not self.SUPABASE_URL.startswith("http"):
+        if self.is_production:
+            if not self.SUPABASE_URL.startswith("http"):
+                raise ValueError("Production requires a valid SUPABASE_URL")
+            if not self.REDIS_URL.startswith("redis"):
+                raise ValueError("Production requires a valid REDIS_URL")
+            if not self.DATABASE_URL.startswith("postgresql+asyncpg"):
+                raise ValueError("Production requires a valid asyncpg PostgreSQL connection string")
+            if not self.SUPABASE_SERVICE_ROLE_KEY:
+                raise ValueError("Production requires SUPABASE_SERVICE_ROLE_KEY")
+            if self.JWT_SECRET.startswith("dev_secret_key"):
+                raise ValueError("Production requires a secure, non-default JWT_SECRET")
+            if self.WS_SECRET.startswith("dev_ws_secret"):
+                raise ValueError("Production requires a secure, non-default WS_SECRET")
+
+        if self.SUPABASE_URL and not self.SUPABASE_URL.startswith("http"):
             raise ValueError("SUPABASE_URL must be a valid HTTP/HTTPS URL")
 
-        if not self.REDIS_URL.startswith("redis"):
+        if self.REDIS_URL and not self.REDIS_URL.startswith("redis"):
             raise ValueError("REDIS_URL must be a valid Redis URL")
 
         if not self.DATABASE_URL.startswith("postgresql+asyncpg") and "sqlite" not in self.DATABASE_URL:
@@ -206,9 +220,6 @@ class Settings(BaseSettings):
 
         if len(self.JWT_SECRET) < 64:
             raise ValueError("JWT_SECRET must be at least 64 characters long")
-
-        if not self.SUPABASE_SERVICE_ROLE_KEY:
-            raise ValueError("SUPABASE_SERVICE_ROLE_KEY must be configured")
 
         if not self.ALLOWED_ORIGINS:
             raise ValueError("ALLOWED_ORIGINS cannot be empty")

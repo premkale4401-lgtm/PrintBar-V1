@@ -95,30 +95,36 @@ async def ready() -> JSONResponse:
         checks["database"] = False
 
     # ─── Redis ─────────────────────────────────────────────────────────────────
-    try:
-        redis_client = aioredis.from_url(
-            _settings.REDIS_URL,
-            socket_connect_timeout=2,
-        )
-        await redis_client.ping()
-        await redis_client.aclose()
+    if _settings.REDIS_URL:
+        try:
+            redis_client = aioredis.from_url(
+                _settings.REDIS_URL,
+                socket_connect_timeout=2,
+            )
+            await redis_client.ping()
+            await redis_client.aclose()
+            checks["redis"] = True
+        except Exception as exc:
+            logger.error("readiness_redis_check_failed", error=str(exc), request_id=request_id)
+            checks["redis"] = False
+    else:
         checks["redis"] = True
-    except Exception as exc:
-        logger.error("readiness_redis_check_failed", error=str(exc), request_id=request_id)
-        checks["redis"] = False
 
     # ─── Supabase Storage ──────────────────────────────────────────────────────
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(
-                f"{_settings.SUPABASE_URL}/storage/v1/bucket",
-                headers={"Authorization": f"Bearer {_settings.SUPABASE_SERVICE_ROLE_KEY}"},
-            )
-            checks["storage"] = resp.status_code in (200, 400)  # 400 = auth error but reachable
-    except Exception as exc:
-        logger.error("readiness_storage_check_failed", error=str(exc), request_id=request_id)
-        checks["storage"] = False
+    if _settings.SUPABASE_URL:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.get(
+                    f"{_settings.SUPABASE_URL}/storage/v1/bucket",
+                    headers={"Authorization": f"Bearer {_settings.SUPABASE_SERVICE_ROLE_KEY}"},
+                )
+                checks["storage"] = resp.status_code in (200, 400)  # 400 = auth error but reachable
+        except Exception as exc:
+            logger.error("readiness_storage_check_failed", error=str(exc), request_id=request_id)
+            checks["storage"] = False
+    else:
+        checks["storage"] = True
 
     all_ready = all(checks.values())
     status_code = status.HTTP_200_OK if all_ready else status.HTTP_503_SERVICE_UNAVAILABLE

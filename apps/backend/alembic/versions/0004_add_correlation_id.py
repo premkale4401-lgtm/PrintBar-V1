@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '0004_add_correlation_id'
-down_revision: Union[str, None] = '0003_add_gateway_event_id_to_webhooks'
+down_revision: Union[str, None] = '0003'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

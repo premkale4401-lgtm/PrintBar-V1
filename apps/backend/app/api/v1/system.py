@@ -69,25 +69,31 @@ async def get_system_status(
         checks["database"] = {"status": "error", "error": str(exc)}
 
     # ── Redis ────────────────────────────────────────────────────────────────────
-    try:
-        import redis.asyncio as aioredis
-        r = await aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=2)
-        await r.ping()
-        await r.aclose()
-        checks["redis"] = {"status": "ok"}
-    except Exception:
-        checks["redis"] = {"status": "error", "error": "Redis unavailable"}
+    if settings.REDIS_URL:
+        try:
+            import redis.asyncio as aioredis
+            r = await aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=2)
+            await r.ping()
+            await r.aclose()
+            checks["redis"] = {"status": "ok"}
+        except Exception:
+            checks["redis"] = {"status": "error", "error": "Redis unavailable"}
+    else:
+        checks["redis"] = {"status": "not_configured"}
 
     # ── Supabase Storage ────────────────────────────────────────────────────────
-    try:
-        from app.storage.service import storage_service
-        exists = await storage_service.file_exists(
-            settings.STORAGE_BUCKET_PRINT_FILES, "_health_check_probe"
-        )
-        # A False result is fine (file doesn't exist) — it means storage is reachable.
-        checks["storage"] = {"status": "ok", "bucket": settings.STORAGE_BUCKET_PRINT_FILES}
-    except Exception:
-        checks["storage"] = {"status": "error", "error": "Storage unavailable"}
+    if settings.SUPABASE_URL:
+        try:
+            from app.storage.service import storage_service
+            exists = await storage_service.file_exists(
+                settings.STORAGE_BUCKET_PRINT_FILES, "_health_check_probe"
+            )
+            # A False result is fine (file doesn't exist) — it means storage is reachable.
+            checks["storage"] = {"status": "ok", "bucket": settings.STORAGE_BUCKET_PRINT_FILES, "provider": "supabase"}
+        except Exception:
+            checks["storage"] = {"status": "error", "error": "Storage unavailable"}
+    else:
+        checks["storage"] = {"status": "ok", "provider": "local"}
 
     # ── Active WebSocket Connections ─────────────────────────────────────────────
     active_ws = len(ws_manager._connections)
