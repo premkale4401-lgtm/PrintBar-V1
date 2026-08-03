@@ -13,13 +13,29 @@ function requireEnv(key: string): string {
   return value;
 }
 
-/** Base URL of the FastAPI backend, e.g. http://localhost:8000 */
-export const API_URL: string =
-  (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
+function getDynamicBackendHost(): string {
+  if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+    return window.location.hostname;
+  }
+  return 'localhost';
+}
 
-/** Base WebSocket URL of the FastAPI backend, e.g. ws://localhost:8000 */
+function getDynamicProtocol(): string {
+  if (typeof window !== 'undefined' && window.location && window.location.protocol) {
+    return window.location.protocol;
+  }
+  return 'http:';
+}
+
+/** Base URL of the FastAPI backend, e.g. http://localhost:8000 or http://10.107.16.76:8000 */
+export const API_URL: string =
+  (import.meta.env.VITE_API_URL as string | undefined) ??
+  `${getDynamicProtocol()}//${getDynamicBackendHost()}:8000`;
+
+/** Base WebSocket URL of the FastAPI backend, e.g. ws://localhost:8000 or ws://10.107.16.76:8000 */
 export const WS_URL: string =
-  (import.meta.env.VITE_WS_URL as string | undefined) ?? 'ws://localhost:8000';
+  (import.meta.env.VITE_WS_URL as string | undefined) ??
+  `${getDynamicProtocol() === 'https:' ? 'wss:' : 'ws:'}//${getDynamicBackendHost()}:8000`;
 
 /** Supabase project URL (for storage signed URLs only — no direct DB access) */
 export const SUPABASE_URL: string =

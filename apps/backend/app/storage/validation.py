@@ -57,6 +57,10 @@ _PDF_MAGIC = b"%PDF"
 _JPEG_MAGIC = b"\xff\xd8\xff"
 # PNG magic bytes
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+# DOC magic bytes (OLE)
+_DOC_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+# DOCX magic bytes (ZIP)
+_DOCX_MAGIC = b"PK\x03\x04"
 
 # Supported extensions and their MIME types
 _SUPPORTED_TYPES: dict[str, str] = {
@@ -64,6 +68,8 @@ _SUPPORTED_TYPES: dict[str, str] = {
     "jpg": "image/jpeg",
     "jpeg": "image/jpeg",
     "png": "image/png",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
 _SUPPORTED_EXTENSIONS = set(_SUPPORTED_TYPES.keys())
@@ -73,6 +79,10 @@ _SUPPORTED_MIMES = {
     "image/jpeg",
     "image/jpg",
     "image/png",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/x-zip-compressed",
+    "application/zip",
 }
 
 
@@ -130,6 +140,8 @@ class PDFValidator:
             self._step8_check_password_protection(reader)
             self._step9_check_embedded_javascript(reader)
             self._step10_check_corruption(reader)
+        elif extension in ("doc", "docx"):
+            page_count = 1  # Standard default page estimate for Office documents
         else:
             # For images, validate the image can be decoded
             page_count = self._validate_image(extension, file_bytes)
@@ -184,6 +196,14 @@ class PDFValidator:
         elif extension == "png":
             if file_bytes[:8] != _PNG_MAGIC:
                 logger.warning("upload_validation_fail_magic_png")
+                raise SpoofedExtensionError()
+        elif extension == "doc":
+            if file_bytes[:8] != _DOC_MAGIC:
+                logger.warning("upload_validation_fail_magic_doc")
+                raise SpoofedExtensionError()
+        elif extension == "docx":
+            if file_bytes[:4] != _DOCX_MAGIC:
+                logger.warning("upload_validation_fail_magic_docx")
                 raise SpoofedExtensionError()
 
     def _step4_check_size(self, file_bytes: bytes) -> None:

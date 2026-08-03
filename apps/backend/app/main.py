@@ -157,10 +157,11 @@ def create_application() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins_list,
+        allow_origin_regex=r"http://(localhost|127\.0\.0\.1|10\..*|192\.168\..*|172\..*):[0-9]+" if settings.is_development else None,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization", "X-Request-ID", "X-Client-Version"],
-        expose_headers=["X-Request-ID"],
+        allow_headers=["*"],
+        expose_headers=["X-Request-ID", "X-Correlation-ID", "Content-Disposition"],
     )
     app.add_middleware(SlowAPIMiddleware)
     app.add_middleware(LoggingMiddleware)

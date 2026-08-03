@@ -16,8 +16,6 @@ Security:
     - Webhook endpoint does NOT require a guest session (called by Razorpay server).
 """
 
-from __future__ import annotations
-
 import uuid
 
 from fastapi import APIRouter, Depends, Header, Request, status, Body
@@ -195,7 +193,7 @@ async def create_payment_order(
 @limiter.limit("10/minute")
 async def verify_payment(
     request: Request,
-    request_body: PaymentVerifyRequest,
+    request_body: PaymentVerifyRequest = Body(...),
     session_id: str = Depends(get_current_guest_session),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:

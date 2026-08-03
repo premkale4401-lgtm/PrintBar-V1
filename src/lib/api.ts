@@ -109,6 +109,10 @@ apiClient.interceptors.response.use(
     const statusCode = error.response?.status ?? 0;
     const errorPayload = error.response?.data?.error;
 
+    if (statusCode === 401) {
+      clearGuestToken();
+    }
+
     if (errorPayload) {
       return Promise.reject(
         new PrintBarApiError(errorPayload.code, errorPayload.message, statusCode),

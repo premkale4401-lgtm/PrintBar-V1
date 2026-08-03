@@ -86,8 +86,11 @@ class UploadService:
 
         # Determine the correct content type for storage.
         base_mime = content_type.split(";")[0].strip().lower()
-        _supported_mimes = {"image/jpeg", "image/jpg", "image/png", "application/pdf"}
-        safe_content_type = base_mime if base_mime in _supported_mimes else "application/pdf"
+        _supported_mimes = {
+            "image/jpeg", "image/jpg", "image/png", "application/pdf",
+            "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        }
+        safe_content_type = base_mime if base_mime in _supported_mimes else "application/octet-stream"
 
         # Upload to Supabase Storage.
         storage_path = await storage_service.upload_file(

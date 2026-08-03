@@ -28,6 +28,7 @@ import {
 } from '../services/payment.service';
 import { PrintBarApiError } from '../lib/api';
 import { RAZORPAY_KEY_ID } from '../lib/env';
+import { safeRandomUUID } from '../lib/uuid';
 import { PrintConfig } from '../types';
 
 export const JOB_ID_STORAGE_KEY = 'pb_current_job_id';
@@ -96,7 +97,7 @@ function buildCheckoutParams(
     orientation: config.orientation,
     pageRange:
       config.pagesSelection === 'range' ? (config.pageRange ?? undefined) : undefined,
-    idempotencyKey: crypto.randomUUID(),
+    idempotencyKey: safeRandomUUID(),
   };
 }
 

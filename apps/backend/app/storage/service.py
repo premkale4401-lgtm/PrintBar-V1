@@ -377,7 +377,7 @@ class LocalStorageService:
         self.base_dir = os.path.abspath(os.path.join(os.getcwd(), "data", "storage"))
         os.makedirs(self.base_dir, exist_ok=True)
         # Note: In production this would be dangerous, but this is exclusively for local dev.
-        self._base_url = "http://localhost:8000/local-storage"
+        self._base_url = "/local-storage"
 
     async def upload_file(
         self,

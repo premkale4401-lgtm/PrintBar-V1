@@ -114,6 +114,9 @@ async def test_pricing_service_color_calculation(db_session):
     from app.models.pricing_rule import PricingRule
     from app.services.pricing_service import PricingService
 
+    from sqlalchemy import update
+    await db_session.execute(update(PricingRule).values(is_active=False))
+
     rule = PricingRule(
         name="Color Test Rule",
         bw_price_inr=Decimal("2.00"),
