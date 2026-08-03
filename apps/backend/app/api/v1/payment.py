@@ -94,6 +94,7 @@ class PaymentVerifyRequest(BaseModel):
     ),
 )
 async def create_payment_order(
+    request: Request,
     file_id: uuid.UUID,
     color_mode: str = "BW",
     paper_size: str = "A4",

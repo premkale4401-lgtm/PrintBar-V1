@@ -22,10 +22,12 @@ import secrets
 import asyncio
 from decimal import Decimal
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.payments.base import OrderResult, OrderStatus, RefundResult, WebhookResult
 
 logger = get_logger(__name__)
+settings = get_settings()
 
 
 class MockPaymentProvider:

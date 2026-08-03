@@ -85,9 +85,12 @@ export const apiClient = axios.create({
   },
 });
 
-// Request interceptor — inject appropriate Bearer token.
+// Request interceptor — dynamically set baseURL and inject appropriate Bearer token.
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    // Dynamic host resolution: recalculate baseURL on every request
+    config.baseURL = `${API_URL}/api/v1`;
+
     // Admin token takes priority over guest token.
     const adminToken = getAdminToken();
     const guestToken = getGuestToken();

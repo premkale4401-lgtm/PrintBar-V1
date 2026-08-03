@@ -30,6 +30,7 @@ from app.core.constants import (
     PAPER_SIZE_A3,
     PAPER_SIZE_LEGAL,
 )
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.models.pricing_rule import PricingRule
 
@@ -118,6 +119,26 @@ class PricingService:
         )
         rule = result.scalar_one_or_none()
         if rule is None:
+            import sys
+            settings = get_settings()
+            if settings.is_development and "pytest" not in sys.modules:
+                from datetime import UTC, datetime
+                rule = PricingRule(
+                    name="Default Development Pricing",
+                    bw_price_inr=Decimal("2.00"),
+                    color_price_inr=Decimal("10.00"),
+                    a3_multiplier=Decimal("1.75"),
+                    legal_multiplier=Decimal("1.25"),
+                    duplex_discount=Decimal("0.10"),
+                    gst_percent=Decimal("18.00"),
+                    is_active=True,
+                    valid_from=datetime.now(tz=UTC).isoformat(),
+                    notes="Auto-seeded for local development.",
+                )
+                self._db.add(rule)
+                await self._db.flush()
+                logger.info("auto_seeded_development_pricing_rule")
+                return rule
             logger.error("no_active_pricing_rule_found")
             raise RuntimeError(
                 "No active pricing rule configured. Run the seed script."

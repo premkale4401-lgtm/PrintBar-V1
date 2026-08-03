@@ -91,16 +91,18 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def check_database_connectivity() -> bool:
     """
-    Verifies that the database is reachable.
-
-    Used by the /ready health endpoint to confirm database availability.
+    Verifies that the database is reachable and all required tables exist.
 
     Returns:
-        True if the database responds, False on error.
+        True if the database responds and tables exist, False on error.
     """
     try:
         from sqlalchemy import select, text
         from app.database.base import Base
+
+        # Ensure all tables exist (self-healing for SQLite local dev)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
         async with AsyncSessionFactory() as session:
             await session.execute(text("SELECT 1"))
