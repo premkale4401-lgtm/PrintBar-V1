@@ -1,4 +1,4 @@
-﻿"""
+"""
 Tests for kiosk agent job downloader.
 """
 from __future__ import annotations
@@ -61,7 +61,7 @@ async def test_download_sha256_mismatch_raises(tmp_path):
     """Downloader raises RuntimeError if SHA-256 does not match."""
     from app.jobs.downloader import JobDownloader
 
-    content = b"some content"
+    content = b"%PDF-1.4 fake pdf content"
     wrong_sha = "a" * 64  # wrong hash
 
     settings = make_settings(tmp_path)

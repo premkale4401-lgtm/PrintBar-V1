@@ -120,17 +120,34 @@ class KioskClient:
         msg_type = msg.get("type", "")
         data = msg.get("data", {})
 
-        if msg_type == "NEW_JOB":
-            logger.info("ws_new_job_received", job_id=data.get("jobId"))
+        if msg_type in ("NEW_JOB", "JOB_ASSIGNED"):
+            logger.info("ws_job_received", job_id=data.get("jobId"), type=msg_type)
             if self._ws:
                 asyncio.create_task(self._job_handler.handle_new_job(data))
 
-        elif msg_type == "CANCEL":
+        elif msg_type == "DOWNLOAD_URL":
+            job_id = data.get("jobId")
+            url = data.get("url")
+            if job_id and url:
+                self._job_handler.resolve_download_url(job_id, url)
+
+        elif msg_type == "DOWNLOAD_URL_ERROR":
+            job_id = data.get("jobId")
+            error = data.get("error", "DOWNLOAD_URL_ERROR")
+            if job_id:
+                self._job_handler.reject_download_url(job_id, error)
+
+        elif msg_type in ("CANCEL", "CANCEL_JOB"):
             logger.info("ws_cancel_received", job_id=data.get("jobId"))
+            if data.get("jobId"):
+                asyncio.create_task(self._job_handler.handle_cancel(data["jobId"]))
 
         elif msg_type == "PING":
             if self._ws:
                 await self._ws.send({"type": "PONG", "data": {}})
+
+        elif msg_type in ("CONNECTED", "PONG"):
+            pass
 
         elif msg_type == "TEST_PRINT":
             logger.info("ws_test_print_received")

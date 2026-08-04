@@ -1,4 +1,4 @@
-﻿"""
+"""
 PrintBar Kiosk Agent — Configuration Loader
 
 Loads configuration from kiosk.yaml and environment variables.
@@ -20,10 +20,18 @@ def load_config(config_path: str = "config/kiosk.yaml") -> KioskSettings:
     Returns:
         KioskSettings with all values populated.
     """
+    candidate_paths = [config_path, "kiosk.yaml", "config/kiosk.example.yaml", "kiosk.example.yaml"]
     data: dict = {}
-    if os.path.exists(config_path):
-        with open(config_path, "r") as f:
-            data = yaml.safe_load(f) or {}
+    for p in candidate_paths:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    content = yaml.safe_load(f)
+                    if isinstance(content, dict):
+                        data = content
+                        break
+            except Exception:
+                pass
 
     settings = KioskSettings(
         kiosk_id=os.getenv("KIOSK_ID", data.get("kiosk_id", "")),

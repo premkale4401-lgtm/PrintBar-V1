@@ -46,37 +46,38 @@ class JobDownloader:
         dest_path = os.path.join(self._settings.temp_dir, f"{job_id}.pdf")
 
         async def _download():
-            async with httpx.AsyncClient(timeout=self._settings.download_timeout_sec) as client:
-                async with client.stream("GET", url) as resp:
-                    resp.raise_for_status()
-                    sha256 = hashlib.sha256()
-                    downloaded_size = 0
-                    
-                    try:
-                        with open(dest_path, "wb") as f:
-                            async for chunk in resp.aiter_bytes(chunk_size=65536):
-                                f.write(chunk)
-                                sha256.update(chunk)
-                                downloaded_size += len(chunk)
-                    except Exception as exc:
-                        if os.path.exists(dest_path):
-                            os.remove(dest_path)
-                        raise RuntimeError(f"Download interrupted: {exc}") from exc
+            try:
+                async with httpx.AsyncClient(timeout=self._settings.download_timeout_sec) as client:
+                    async with client.stream("GET", url) as resp:
+                        resp.raise_for_status()
+                        sha256 = hashlib.sha256()
+                        downloaded_size = 0
                         
-                    # Verify PDF Header
-                    if downloaded_size < 5:
-                        if os.path.exists(dest_path):
-                            os.remove(dest_path)
-                        raise ValueError(f"File too small to be a valid PDF (size={downloaded_size}).")
-                    
-                    with open(dest_path, "rb") as f:
-                        header = f.read(5)
-                        if header != b"%PDF-":
-                            f.close()
-                            os.remove(dest_path)
-                            raise ValueError(f"Invalid PDF header: {header!r}")
+                        try:
+                            with open(dest_path, "wb") as f:
+                                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                                    f.write(chunk)
+                                    sha256.update(chunk)
+                                    downloaded_size += len(chunk)
+                        except Exception as exc:
+                            if os.path.exists(dest_path):
+                                os.remove(dest_path)
+                            raise RuntimeError(f"Download interrupted: {exc}") from exc
+                            
+                        # Verify PDF Header
+                        if downloaded_size < 5:
+                            if os.path.exists(dest_path):
+                                os.remove(dest_path)
+                            raise ValueError(f"File too small to be a valid PDF (size={downloaded_size}).")
+                        
+                        with open(dest_path, "rb") as f:
+                            header = f.read(5)
+                            if header != b"%PDF-":
+                                f.close()
+                                os.remove(dest_path)
+                                raise ValueError(f"Invalid PDF header: {header!r}")
 
-                    return sha256.hexdigest(), downloaded_size
+                        return sha256.hexdigest(), downloaded_size
             except httpx.HTTPStatusError as exc:
                 if 400 <= exc.response.status_code < 500:
                     raise ValueError(f"Permanent HTTP error downloading job {job_id}: {exc}") from exc

@@ -1,4 +1,4 @@
-﻿"""Kiosk agent configuration dataclass."""
+"""Kiosk agent configuration dataclass."""
 from __future__ import annotations
 from dataclasses import dataclass, field
 
@@ -36,3 +36,6 @@ class KioskSettings:
         if not self.ws_url:
             base = self.backend_url.replace("https://", "wss://").replace("http://", "ws://")
             self.ws_url = f"{base}/ws/kiosk/{self.kiosk_id}"
+        if self.api_key and "api_key=" not in self.ws_url:
+            sep = "&" if "?" in self.ws_url else "?"
+            self.ws_url = f"{self.ws_url}{sep}api_key={self.api_key}"

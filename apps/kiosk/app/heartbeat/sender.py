@@ -42,7 +42,11 @@ class HeartbeatSender:
                 printer_status = "UNKNOWN"
                 if self._get_printer_status:
                     try:
-                        printer_status = await self._get_printer_status()
+                        res = self._get_printer_status()
+                        if asyncio.iscoroutine(res) or asyncio.isfuture(res) or hasattr(res, '__await__'):
+                            printer_status = await res
+                        else:
+                            printer_status = str(res)
                     except Exception:
                         printer_status = "UNKNOWN"
 

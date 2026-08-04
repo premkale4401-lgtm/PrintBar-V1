@@ -1,4 +1,4 @@
-﻿"""
+"""
 PrintBar Kiosk Agent — Authenticator
 
 Exchanges the raw API key for a JWT access token.
@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 import httpx
 from app.config.settings import KioskSettings
+
+from app.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -32,18 +34,27 @@ class Authenticator:
         url = f"{self._settings.backend_url}/api/v1/kiosks/auth"
         payload = {"kiosk_id": self._settings.kiosk_id, "api_key": self._settings.api_key}
 
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(url, json=payload)
+        async def _do_auth():
+            async with httpx.AsyncClient(timeout=10, verify=False) as client:
+                resp = await client.post(url, json=payload)
 
-        if resp.status_code != 200:
-            raise RuntimeError(
-                f"Kiosk authentication failed: HTTP {resp.status_code} — {resp.text}"
-            )
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Kiosk authentication failed: HTTP {resp.status_code} — {resp.text}"
+                )
 
-        data = resp.json().get("data", {})
-        token = data.get("accessToken")
-        if not token:
-            raise RuntimeError("Authentication response missing accessToken")
+            data = resp.json().get("data", {})
+            token = data.get("accessToken")
+            if not token:
+                raise RuntimeError("Authentication response missing accessToken")
+            return token
+
+        token = await retry_with_backoff(
+            _do_auth,
+            max_attempts=5,
+            base_delay=2.0,
+            label="kiosk_authentication",
+        )
 
         self._access_token = token
         logger.info("kiosk_authenticated", kiosk_id=self._settings.kiosk_id)
