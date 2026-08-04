@@ -320,6 +320,18 @@ export const StepPayment: React.FC<StepPaymentProps> = ({
 
       handleJobCreated(orderResult.jobId);
 
+      // In mock mode (PAYMENT_PROVIDER=mock), automatically simulate payment verification
+      if (orderResult.isMockMode) {
+        await paymentService.verifyPayment({
+          razorpay_order_id: orderResult.razorpayOrderId || orderResult.gatewayOrderId,
+          razorpay_payment_id: "pay_mock_" + Date.now().toString(),
+          razorpay_signature: "mock_signature_bypass",
+          job_id: orderResult.jobId,
+        });
+        startVerification(orderResult.jobId);
+        return;
+      }
+
       // Step 2: Launch UPI app with the Razorpay order ID as txnRef
       const switchResult = await launchApp(appId, {
         merchantVpa: 'printbar@razorpay',  // Razorpay merchant VPA
@@ -378,6 +390,17 @@ export const StepPayment: React.FC<StepPaymentProps> = ({
       handleJobCreated(orderResult.jobId);
       setQrOrderResult(orderResult);
 
+      if (orderResult.isMockMode) {
+        await paymentService.verifyPayment({
+          razorpay_order_id: orderResult.razorpayOrderId || orderResult.gatewayOrderId,
+          razorpay_payment_id: "pay_mock_" + Date.now().toString(),
+          razorpay_signature: "mock_signature_bypass",
+          job_id: orderResult.jobId,
+        });
+        startVerification(orderResult.jobId);
+        return;
+      }
+
       // Poll gateway order status every 3 seconds for QR payment
       qrPollIntervalRef.current = setInterval(async () => {
         try {
@@ -417,7 +440,7 @@ export const StepPayment: React.FC<StepPaymentProps> = ({
   /**
    * DEV MODE ONLY — Bypasses payment gateway completely.
    * Creates an order first (so the DB record exists), then calls the
-   * dev/complete endpoint to mark it paid without any real gateway call.
+   * verify endpoint to mark it paid without any real gateway call.
    * Only available when backend ENVIRONMENT=development.
    */
   const [isDevPaying, setIsDevPaying] = useState(false);
@@ -438,8 +461,13 @@ export const StepPayment: React.FC<StepPaymentProps> = ({
       }
       handleJobCreated(orderResult.jobId);
 
-      // Step 2: Bypass payment gateway — mark SUCCESS immediately.
-      await paymentService.devCompletePayment(orderResult.jobId);
+      // Step 2: Call verify endpoint to process payment.
+      await paymentService.verifyPayment({
+        razorpay_order_id: orderResult.razorpayOrderId || orderResult.gatewayOrderId,
+        razorpay_payment_id: "pay_mock_" + Date.now().toString(),
+        razorpay_signature: "mock_signature_bypass",
+        job_id: orderResult.jobId,
+      });
 
       // Step 3: Show verifying overlay briefly then proceed.
       startVerification(orderResult.jobId);
@@ -455,7 +483,12 @@ export const StepPayment: React.FC<StepPaymentProps> = ({
 
   // Detect dev mode — check hostname or explicit env var.
   const isDevMode = typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    (window.location.hostname === 'localhost' ||
+     window.location.hostname === '127.0.0.1' ||
+     window.location.hostname.startsWith('10.') ||
+     window.location.hostname.startsWith('192.168.') ||
+     window.location.hostname.endsWith('.local') ||
+     import.meta.env.DEV);
 
   // Build QR URI from order result or fallback
   const qrPaymentUri = qrOrderResult && backendPrice

@@ -273,6 +273,7 @@ class PaymentService:
             PaymentOrderNotFoundError:   No payment found for this job.
             InvalidPaymentSignatureError: Signature verification failed.
         """
+        logger.info("DEBUG_PAYMENT: verify_payment_callback executing", job_id=str(job_id), order_id=razorpay_order_id)
         job: PrintJob | None = await self._job_repo.get_by_id(job_id)
         payment: Payment | None = None
 

@@ -193,11 +193,12 @@ class PrintJobRepository:
         await self._db.refresh(job)
 
         logger.info(
-            "print_job_transition",
+            "print_job_transitioned",
             job_id=str(job_id),
             from_status=job.status,
             to_status=to_status,
         )
+        logger.info("DEBUG_PAYMENT: print_job_repository transition executed", job_id=str(job_id), from_status=job.status, to_status=to_status)
         return job
 
     async def assign_to_kiosk(

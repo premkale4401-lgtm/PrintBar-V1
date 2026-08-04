@@ -254,6 +254,7 @@ async def run_simulated_kiosk_worker() -> None:
                         import uuid
                         job_id = uuid.UUID(job_id_str)
                         logger.info("simulated_kiosk_processing_job", job_id=job_id_str, current_status=current_st)
+                        logger.info("DEBUG_PAYMENT: background_worker processing job", job_id=job_id_str, current_status=current_st)
 
                         async def _do_transition(to_st: str):
                             async with AsyncSessionFactory() as db:
