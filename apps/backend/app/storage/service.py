@@ -371,13 +371,19 @@ class LocalStorageService:
     """
     Local filesystem storage fallback for development.
     Does not require Supabase or external networking.
+
+    IMPORTANT: create_signed_url() returns a full http:// URL using
+    settings.BACKEND_BASE_URL so that the Raspberry Pi can download the
+    file over the LAN. The backend must mount /local-storage as a static
+    file route (done in main.py when SUPABASE_URL is not set).
     """
     def __init__(self) -> None:
         import os
         self.base_dir = os.path.abspath(os.path.join(os.getcwd(), "data", "storage"))
         os.makedirs(self.base_dir, exist_ok=True)
-        # Note: In production this would be dangerous, but this is exclusively for local dev.
-        self._base_url = "/local-storage"
+        # Use the backend's own base URL so the Raspberry Pi can resolve it.
+        # Trailing slash stripped for consistent URL construction.
+        self._backend_base_url = settings.BACKEND_BASE_URL.rstrip("/")
 
     async def upload_file(
         self,
@@ -389,7 +395,7 @@ class LocalStorageService:
         import os
         full_path = os.path.join(self.base_dir, bucket, object_path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        
+
         try:
             with open(full_path, "wb") as f:
                 f.write(file_data)
@@ -410,10 +416,21 @@ class LocalStorageService:
         object_path: str,
         expires_in_seconds: int | None = None,
     ) -> str:
-        # We don't actually sign URLs in dev, we just point to the open local endpoint.
-        # This matches the kiosk's expectation of receiving a GET-able URL.
-        # Path format: /local-storage/bucket/path/to/file.pdf
-        return f"{self._base_url}/{bucket}/{object_path}"
+        """
+        Returns a fully-qualified HTTP URL for the local file.
+
+        The Raspberry Pi downloads this URL directly from the backend over the LAN.
+        The backend must serve /local-storage/* as static files (see main.py).
+
+        Root cause fix: previously returned /local-storage/... (relative path)
+        which httpx rejected with "missing http:// or https:// protocol".
+        """
+        url = f"{self._backend_base_url}/local-storage/{bucket}/{object_path}"
+        logger.info(
+            "SIGNED_URL_CREATED bucket=%s path=%s url=%s ts=local_storage",
+            bucket, object_path, url,
+        )
+        return url
 
     async def delete_file(self, bucket: str, object_path: str) -> bool:
         import os

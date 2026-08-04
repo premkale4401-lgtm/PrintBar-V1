@@ -149,6 +149,19 @@ class Settings(BaseSettings):
     # ─── Monitoring ────────────────────────────────────────────────────────────
     ENABLE_METRICS: bool = True
 
+    # ─── Backend Base URL (used for local-storage fallback signed URLs) ────────
+    # In development: the Raspberry Pi must be able to reach this URL over the LAN.
+    # Example: http://192.168.1.100:8000
+    # Defaults to localhost — override in kiosk's network environment.
+    BACKEND_BASE_URL: str = Field(
+        default="http://localhost:8000",
+        description=(
+            "Fully-qualified base URL of the backend server. "
+            "Used only when SUPABASE_URL is not set (local-storage dev mode) "
+            "to build download URLs the Raspberry Pi can reach over the LAN."
+        ),
+    )
+
     @field_validator("JWT_SECRET")
     @classmethod
     def validate_jwt_secret(cls, v: str) -> str:

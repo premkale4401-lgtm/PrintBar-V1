@@ -2,12 +2,15 @@
 PrintBar Kiosk Agent — WebSocket Connection Manager
 
 Maintains a persistent, auto-reconnecting WebSocket connection to the backend.
-Reconnects with exponential backoff (1s → 2s → 4s → max 60s).
+Reconnects with exponential backoff (1s → 2s → 4s → max 30s).
+
+Every incoming and outgoing message is logged with type and timestamp.
 """
 from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Callable
 import websockets
 from websockets.exceptions import ConnectionClosed
@@ -41,42 +44,80 @@ class KioskWebSocketConnection:
         while self._running:
             try:
                 headers = {"Authorization": f"Bearer {self._token}"}
-                async with websockets.connect(self._url, extra_headers=headers, ping_interval=30) as ws:
+                async with websockets.connect(
+                    self._url, extra_headers=headers, ping_interval=30
+                ) as ws:
                     self._ws = ws
                     self._connected = True
                     delay = 1.0  # Reset delay on successful connect.
-                    logger.info("ws_connected", url=self._url)
+                    logger.info(
+                        "WS_CONNECTED kiosk_id=%s url=%s ts=%s",
+                        self._kiosk_id, self._url, datetime.now(tz=UTC).isoformat(),
+                    )
 
                     # Send REGISTER message.
-                    await ws.send(json.dumps({
+                    register_msg = json.dumps({
                         "type": "REGISTER",
                         "data": {"kioskId": self._kiosk_id},
-                    }))
+                    })
+                    await ws.send(register_msg)
+                    logger.info(
+                        "WS_SENT type=REGISTER kiosk_id=%s ts=%s",
+                        self._kiosk_id, datetime.now(tz=UTC).isoformat(),
+                    )
 
                     async for raw_msg in ws:
                         try:
                             msg = json.loads(raw_msg)
+                            msg_type = msg.get("type", "UNKNOWN")
+                            logger.info(
+                                "WS_RECEIVED type=%s kiosk_id=%s ts=%s",
+                                msg_type, self._kiosk_id, datetime.now(tz=UTC).isoformat(),
+                            )
                             await self._on_message(msg)
                         except Exception as exc:
-                            logger.error("ws_message_handler_error", error=str(exc))
+                            logger.error(
+                                "WS_MESSAGE_HANDLER_ERROR kiosk_id=%s error=%s ts=%s",
+                                self._kiosk_id, str(exc), datetime.now(tz=UTC).isoformat(),
+                            )
 
             except ConnectionClosed as exc:
-                logger.warning("ws_disconnected", code=exc.code, reason=exc.reason)
+                logger.warning(
+                    "WS_DISCONNECTED kiosk_id=%s code=%s reason=%s ts=%s",
+                    self._kiosk_id, exc.code, exc.reason, datetime.now(tz=UTC).isoformat(),
+                )
             except Exception as exc:
-                logger.error("ws_error", error=str(exc))
+                logger.error(
+                    "WS_ERROR kiosk_id=%s error=%s ts=%s",
+                    self._kiosk_id, str(exc), datetime.now(tz=UTC).isoformat(),
+                )
             finally:
                 self._connected = False
                 self._ws = None
 
             if self._running:
-                logger.info(f"ws_reconnecting_in={delay:.1f}s")
+                logger.info(
+                    "WS_RECONNECTING kiosk_id=%s delay=%.1f ts=%s",
+                    self._kiosk_id, delay, datetime.now(tz=UTC).isoformat(),
+                )
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 30.0)
 
     async def send(self, message: dict) -> None:
-        """Sends a JSON message over the WebSocket."""
+        """Sends a JSON message over the WebSocket and logs it."""
         if self._ws and self._connected:
+            msg_type = message.get("type", "UNKNOWN")
             await self._ws.send(json.dumps(message))
+            logger.info(
+                "WS_SENT type=%s kiosk_id=%s ts=%s",
+                msg_type, self._kiosk_id, datetime.now(tz=UTC).isoformat(),
+            )
+        else:
+            logger.warning(
+                "WS_SEND_DROPPED_NOT_CONNECTED type=%s kiosk_id=%s ts=%s",
+                message.get("type", "UNKNOWN"), self._kiosk_id,
+                datetime.now(tz=UTC).isoformat(),
+            )
 
     async def close(self) -> None:
         """Gracefully closes the connection."""
@@ -90,12 +131,12 @@ class KioskWebSocketConnection:
         Useful when an external subsystem (like heartbeat) detects an unresponsive connection.
         """
         if self._ws and self._connected:
-            logger.warning("ws_force_disconnect_requested")
+            logger.warning(
+                "WS_FORCE_DISCONNECT kiosk_id=%s ts=%s",
+                self._kiosk_id, datetime.now(tz=UTC).isoformat(),
+            )
             await self._ws.close()
-            # self._ws.close() will cause `async for raw_msg in ws:` to exit with ConnectionClosed
-            # and the reconnect loop will automatically take over since self._running is still True.
 
     @property
     def is_connected(self) -> bool:
         return self._connected
-

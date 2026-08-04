@@ -151,11 +151,20 @@ async def _handle_message(
     """Dispatches incoming WebSocket messages to the appropriate handler."""
     ws_manager.update_heartbeat(kiosk_id)
 
+    logger.info(
+        "ws_message_received",
+        kiosk_id=kiosk_id,
+        type=msg_type,
+        timestamp=datetime.now(tz=UTC).isoformat(),
+    )
+
     async with AsyncSessionFactory() as db:
         async with db.begin():
             if msg_type == "HEARTBEAT":
                 await _handle_heartbeat(kiosk_id, kiosk_uuid, data, db)
-            elif msg_type == "JOB_STATUS":
+            elif msg_type in ("JOB_STATUS", "JOB_STATUS_UPDATE"):
+                # JOB_STATUS_UPDATE is accepted as a backward-compatible alias for JOB_STATUS.
+                # Both map to the same handler — only one DB transition occurs.
                 await _handle_job_status(kiosk_id, data, db)
             elif msg_type == "JOB_COMPLETED":
                 await _handle_job_completed(kiosk_id, data, db)
@@ -163,10 +172,26 @@ async def _handle_message(
                 await _handle_job_failed(kiosk_id, data, db)
             elif msg_type == "DOWNLOAD_URL_REQUEST":
                 await _handle_download_url_request(kiosk_id, data, db)
+            elif msg_type == "REGISTER":
+                # Kiosk sends REGISTER immediately after connecting to identify itself.
+                # Already authenticated — just log it. No further action required.
+                logger.info(
+                    "ws_kiosk_registered",
+                    kiosk_id=kiosk_id,
+                    reported_id=data.get("kioskId"),
+                    timestamp=datetime.now(tz=UTC).isoformat(),
+                )
             elif msg_type == "PONG":
-                pass  # Keepalive — no action needed.
+                # Keepalive acknowledgement — no action needed.
+                logger.debug("ws_pong_received", kiosk_id=kiosk_id)
             else:
-                logger.warning("ws_unknown_message_type", kiosk_id=kiosk_id, type=msg_type)
+                logger.warning(
+                    "ws_unknown_message_type",
+                    kiosk_id=kiosk_id,
+                    type=msg_type,
+                    timestamp=datetime.now(tz=UTC).isoformat(),
+                )
+
 
 
 async def _handle_heartbeat(
@@ -293,18 +318,32 @@ async def _handle_download_url_request(
     db: AsyncSession,
 ) -> None:
     """
-    Generates a signed Supabase URL for the kiosk to download a print file.
+    Generates a signed storage URL for the kiosk to download a print file.
 
-    The kiosk requests a download URL after receiving a JOB_ASSIGNED message.
-    The URL expires in settings.SIGNED_URL_EXPIRY_SECONDS.
+    The kiosk sends DOWNLOAD_URL_REQUEST after receiving JOB_ASSIGNED.
+    The backend responds with DOWNLOAD_URL containing the signed URL.
+
+    Full flow:
+        DOWNLOAD_URL_REQUEST_RECEIVED
+        → SIGNED_URL_CREATED
+        → DOWNLOAD_URL_SENT
     """
     job_id_str = data.get("jobId")
     if not job_id_str:
+        logger.warning("ws_download_url_request_missing_job_id", kiosk_id=kiosk_id)
         return
+
+    logger.info(
+        "DOWNLOAD_URL_REQUEST_RECEIVED",
+        job_id=job_id_str,
+        kiosk_id=kiosk_id,
+        timestamp=datetime.now(tz=UTC).isoformat(),
+    )
 
     try:
         job_uuid = uuid.UUID(job_id_str)
     except ValueError:
+        logger.warning("ws_download_url_request_invalid_job_id", job_id=job_id_str)
         return
 
     job_repo = PrintJobRepository(db)
@@ -312,41 +351,82 @@ async def _handle_download_url_request(
 
     job = await job_repo.get_by_id(job_uuid)
     if not job:
+        logger.warning("ws_download_url_job_not_found", job_id=job_id_str, kiosk_id=kiosk_id)
         await ws_manager.send_to_kiosk(kiosk_id, "DOWNLOAD_URL_ERROR", {
             "jobId": job_id_str, "error": "JOB_NOT_FOUND"
         })
         return
 
     if not job.uploaded_file_id:
+        logger.warning("ws_download_url_no_file", job_id=job_id_str, kiosk_id=kiosk_id)
+        await ws_manager.send_to_kiosk(kiosk_id, "DOWNLOAD_URL_ERROR", {
+            "jobId": job_id_str, "error": "NO_FILE_ATTACHED"
+        })
         return
 
     uploaded_file = await file_repo.get_by_id(job.uploaded_file_id)
     if not uploaded_file or uploaded_file.is_deleted or not uploaded_file.storage_path:
+        logger.warning("ws_download_url_file_not_found", job_id=job_id_str, kiosk_id=kiosk_id)
         await ws_manager.send_to_kiosk(kiosk_id, "DOWNLOAD_URL_ERROR", {
             "jobId": job_id_str, "error": "FILE_NOT_FOUND"
         })
         return
 
-    # Transition job to DOWNLOADING.
+    # Transition job to DOWNLOADING state.
     try:
         await job_repo.transition(job_uuid, "DOWNLOADING")
+        logger.info(
+            "DATABASE_UPDATED job_id=%s status=DOWNLOADING kiosk_id=%s ts=%s",
+            job_id_str, kiosk_id, datetime.now(tz=UTC).isoformat(),
+        )
     except Exception:
-        pass
+        pass  # Non-fatal — job may already be in DOWNLOADING state.
 
     try:
         signed_url = await storage_service.create_signed_url(
             bucket=uploaded_file.storage_bucket,
             object_path=uploaded_file.storage_path,
         )
-        await ws_manager.send_to_kiosk(kiosk_id, "DOWNLOAD_URL", {
+        logger.info(
+            "SIGNED_URL_CREATED",
+            job_id=job_id_str,
+            kiosk_id=kiosk_id,
+            bucket=uploaded_file.storage_bucket,
+            path=uploaded_file.storage_path,
+            url_len=len(signed_url),
+            timestamp=datetime.now(tz=UTC).isoformat(),
+        )
+
+        sent = await ws_manager.send_to_kiosk(kiosk_id, "DOWNLOAD_URL", {
             "jobId": job_id_str,
             "url": signed_url,
             "sha256": uploaded_file.sha256_checksum,
             "expiresIn": settings.SIGNED_URL_EXPIRY_SECONDS,
         })
-        logger.info("ws_download_url_sent", job_id=job_id_str, kiosk_id=kiosk_id)
+
+        if sent:
+            logger.info(
+                "DOWNLOAD_URL_SENT",
+                job_id=job_id_str,
+                kiosk_id=kiosk_id,
+                timestamp=datetime.now(tz=UTC).isoformat(),
+            )
+        else:
+            logger.error(
+                "DOWNLOAD_URL_SEND_FAILED kiosk not connected",
+                job_id=job_id_str,
+                kiosk_id=kiosk_id,
+                timestamp=datetime.now(tz=UTC).isoformat(),
+            )
     except Exception as exc:
-        logger.error("ws_download_url_error", error=str(exc))
+        logger.error(
+            "ws_download_url_error",
+            job_id=job_id_str,
+            kiosk_id=kiosk_id,
+            error=str(exc),
+            timestamp=datetime.now(tz=UTC).isoformat(),
+        )
         await ws_manager.send_to_kiosk(kiosk_id, "DOWNLOAD_URL_ERROR", {
             "jobId": job_id_str, "error": "STORAGE_ERROR"
         })
+
