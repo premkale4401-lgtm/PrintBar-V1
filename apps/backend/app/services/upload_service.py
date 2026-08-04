@@ -2,11 +2,16 @@
 PrintBar Backend — Upload Service
 
 Orchestrates the complete file upload workflow:
-    1. Validate the PDF (10-step pipeline)
-    2. Compute SHA-256 checksum
-    3. Upload to Supabase Storage
-    4. Create database record
-    5. Return response
+    1. Validate the file (10-step pipeline via PDFValidator)
+    2. Convert to PDF bytes (DocumentProcessor — PNG/JPG/DOC/DOCX → PDF)
+    3. Compute SHA-256 checksum on the final PDF bytes
+    4. Upload PDF to Supabase Storage
+    5. Create database record
+    6. Return response
+
+Key invariant enforced by this service:
+    ONLY real PDF bytes are ever written to storage.
+    The kiosk will always download a valid PDF.
 
 This service is the single authority for upload business logic.
 No validation or storage code lives in the route handler.
@@ -22,6 +27,7 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.models.uploaded_file import UploadedFile
 from app.repositories.uploaded_file_repository import UploadedFileRepository
+from app.services.document_processor import document_processor
 from app.storage.service import storage_service
 from app.storage.validation import pdf_validator
 
@@ -31,7 +37,10 @@ settings = get_settings()
 
 class UploadService:
     """
-    Orchestrates PDF upload validation, storage, and database registration.
+    Orchestrates file upload validation, conversion, storage, and DB registration.
+
+    Pipeline:
+        validate → convert to PDF → checksum → store → persist
 
     Args:
         db: Async SQLAlchemy session.
@@ -50,25 +59,65 @@ class UploadService:
         correlation_id: str = "unknown",
     ) -> UploadedFile:
         """
-        Full upload pipeline: validate → checksum → store → persist.
+        Full upload pipeline: validate → convert → checksum → store → persist.
 
         Args:
-            session_id:   Guest session ID from the JWT.
-            filename:     Original filename from the multipart upload.
-            content_type: MIME type declared by the client.
-            file_bytes:   Complete file content.
+            session_id:     Guest session ID from the JWT.
+            filename:       Original filename from the multipart upload.
+            content_type:   MIME type declared by the client.
+            file_bytes:     Complete file content as received from the client.
             correlation_id: Trace ID.
 
         Returns:
             Persisted UploadedFile database record.
+
+        Pipeline details:
+            1. PDFValidator runs extension/MIME/magic-bytes/size checks on
+               the ORIGINAL bytes. PDF-specific steps (5-10) run for PDF uploads.
+            2. DocumentProcessor converts non-PDF types to real PDF bytes.
+               The resulting PDF is also validated (magic bytes + pypdf parse).
+            3. SHA-256 is computed on the FINAL PDF bytes (not the original),
+               so the checksum the kiosk checks matches what it downloads.
+            4. Storage receives ONLY application/pdf with PDF bytes.
         """
-        # Step 1–10: File validation (PDF, JPG, PNG supported).
-        page_count = pdf_validator.validate(filename, content_type, file_bytes)
+        # ── Step 1: Validate the original file ─────────────────────────────────
+        # This validates extension, MIME type, magic bytes, size, and (for PDFs)
+        # the full 10-step PDF pipeline. For images/docs, basic integrity is
+        # confirmed and page_count_estimate is returned (1 for images).
+        #
+        # NOTE: page_count_estimate may be inaccurate for DOC/DOCX — the actual
+        # page count comes from document_processor below after conversion.
+        pdf_validator.validate(filename, content_type, file_bytes)
 
-        # Compute SHA-256 for integrity verification at download time.
-        sha256 = storage_service.compute_sha256(file_bytes)
+        # ── Step 2: Convert to PDF ──────────────────────────────────────────────
+        # DocumentProcessor guarantees:
+        #   - Returned bytes begin with b"%PDF-"
+        #   - Returned page_count is accurate (from pypdf after conversion)
+        #   - All temporary files are cleaned up regardless of success/failure
+        pdf_bytes, page_count = await document_processor.process(
+            filename=filename,
+            content_type=content_type,
+            file_bytes=file_bytes,
+        )
 
-        # ── Idempotency Check ─────────────────────────────────────────────────
+        logger.info(
+            "upload_service_conversion_complete",
+            filename=filename,
+            original_size=len(file_bytes),
+            pdf_size=len(pdf_bytes),
+            page_count=page_count,
+            correlation_id=correlation_id,
+        )
+
+        # ── Step 3: SHA-256 on final PDF bytes ─────────────────────────────────
+        # The checksum is computed on PDF bytes — the exact bytes stored in
+        # Supabase and downloaded by the kiosk. The kiosk compares this SHA-256
+        # to verify download integrity.
+        sha256 = storage_service.compute_sha256(pdf_bytes)
+
+        # ── Idempotency Check ──────────────────────────────────────────────────
+        # If the same file (same SHA-256) was already uploaded in this session,
+        # return the existing record without re-storing.
         existing_file = await self._repo.get_by_sha256_and_session(sha256, session_id)
         if existing_file:
             logger.info(
@@ -79,36 +128,37 @@ class UploadService:
             )
             return existing_file
 
-        # Generate a unique file ID for the storage path.
+        # ── Step 4: Upload PDF to storage ──────────────────────────────────────
+        # Always stored as application/pdf with PDF bytes.
+        # The original content_type (image/png, image/jpeg, etc.) is discarded.
         file_id = str(uuid.uuid4())
         object_path = storage_service.build_object_path(session_id, file_id)
         bucket = settings.STORAGE_BUCKET_PRINT_FILES
 
-        # Determine the correct content type for storage.
-        base_mime = content_type.split(";")[0].strip().lower()
-        _supported_mimes = {
-            "image/jpeg", "image/jpg", "image/png", "application/pdf",
-            "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        }
-        safe_content_type = base_mime if base_mime in _supported_mimes else "application/octet-stream"
-
-        # Upload to Supabase Storage.
         storage_path = await storage_service.upload_file(
             bucket=bucket,
             object_path=object_path,
-            file_data=file_bytes,
-            content_type=safe_content_type,
+            file_data=pdf_bytes,
+            content_type="application/pdf",
+        )
+
+        logger.info(
+            "upload_service_stored",
+            bucket=bucket,
+            path=object_path,
+            pdf_size=len(pdf_bytes),
+            correlation_id=correlation_id,
         )
 
         try:
-            # Persist metadata in the database atomically.
+            # ── Step 5: Persist metadata atomically ────────────────────────────
             async with self._db.begin_nested():
                 uploaded_file = await self._repo.create(
                     session_id=session_id,
                     storage_path=object_path,
                     storage_bucket=bucket,
                     original_filename=filename,
-                    file_size_bytes=len(file_bytes),
+                    file_size_bytes=len(pdf_bytes),   # actual stored PDF size
                     page_count=page_count,
                     sha256_checksum=sha256,
                     correlation_id=correlation_id,
@@ -122,6 +172,7 @@ class UploadService:
                 file_id=str(uploaded_file.id),
                 page_count=page_count,
                 sha256=sha256[:8] + "...",
+                correlation_id=correlation_id,
             )
             return uploaded_file
         except Exception:
@@ -130,7 +181,11 @@ class UploadService:
             try:
                 await storage_service.delete_file(bucket, object_path)
             except Exception as cleanup_exc:
-                logger.error("upload_service_rollback_storage_failed", error=str(cleanup_exc))
+                logger.error(
+                    "upload_service_rollback_storage_failed",
+                    error=str(cleanup_exc),
+                    correlation_id=correlation_id,
+                )
             raise
 
     async def delete_upload(
@@ -155,14 +210,15 @@ class UploadService:
         try:
             async with self._db.begin_nested():
                 await self._repo.mark_deleted(file_id)
-            
-            # External call inside the overall block, if it fails, the nested block above is rolled back
+
+            # External call inside the overall block; if it fails, the nested
+            # block above is rolled back.
             if uploaded_file.storage_path:
                 await storage_service.delete_file(
                     bucket=uploaded_file.storage_bucket,
                     object_path=uploaded_file.storage_path,
                 )
-                
+
             await self._db.commit()
             return True
         except Exception:

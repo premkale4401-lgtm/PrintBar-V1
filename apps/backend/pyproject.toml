@@ -15,6 +15,9 @@ filterwarnings = [
     "ignore::DeprecationWarning:pydantic",
     "ignore::DeprecationWarning:jose",
     "ignore::pytest_asyncio.plugin.PytestDeprecationWarning",
+    # slowapi uses asyncio.iscoroutinefunction which is deprecated in Python 3.14+
+    "ignore:.*asyncio.iscoroutinefunction.*:DeprecationWarning",
+    "ignore::DeprecationWarning:slowapi",
 ]
 
 [tool.ruff]
