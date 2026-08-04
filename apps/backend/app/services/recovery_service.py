@@ -38,10 +38,29 @@ class WorkflowRecoveryService:
 
         # Query active uncompleted jobs
         jobs = await self._job_repo.get_active_uncompleted_jobs()
+        if not jobs:
+            return 0
 
-        for job in jobs:
+        # Extract primitive attributes into snapshots to avoid ORM lazy-loading/greenlet_spawn issues
+        # when committing or rolling back inside the processing loop.
+        job_snapshots = [
+            {
+                "id": job.id,
+                "status": job.status,
+                "retry_count": job.retry_count,
+                "updated_at": job.updated_at,
+                "created_at": job.created_at,
+            }
+            for job in jobs
+        ]
+
+        for job in job_snapshots:
+            job_id = job["id"]
+            status = job["status"]
+            retry_count = job["retry_count"]
+
             # updated_at and created_at are datetime objects
-            last_update = job.updated_at or job.created_at
+            last_update = job["updated_at"] or job["created_at"]
             if not last_update:
                 continue
 
@@ -52,38 +71,39 @@ class WorkflowRecoveryService:
 
             try:
                 # Rule 1: Payment pending > 15 mins -> CANCELLED
-                if job.status == "PAYMENT_PENDING" and time_elapsed > timedelta(minutes=15):
-                    logger.warning("recovery_timeout_payment", job_id=str(job.id), elapsed=str(time_elapsed))
-                    await self._job_repo.transition(job.id, "CANCELLED")
+                if status == "PAYMENT_PENDING" and time_elapsed > timedelta(minutes=15):
+                    logger.warning("recovery_timeout_payment", job_id=str(job_id), elapsed=str(time_elapsed))
+                    await self._job_repo.transition(job_id, "CANCELLED")
+                    await self._db.commit()
                     processed += 1
-                    
+
                 # Rule 2: Assigned / Downloading / Ready to Print > 5 mins -> Retry (Revert to QUEUED)
-                elif job.status in ("ASSIGNED", "DOWNLOADING", "READY_TO_PRINT") and time_elapsed > timedelta(minutes=5):
-                    if job.retry_count >= 3:
-                        logger.error("recovery_max_retries_exceeded", job_id=str(job.id), status=job.status)
-                        await self._job_repo.mark_failed(job.id, "MAX_RETRIES_EXCEEDED")
+                elif status in ("ASSIGNED", "DOWNLOADING", "READY_TO_PRINT") and time_elapsed > timedelta(minutes=5):
+                    if retry_count >= 3:
+                        logger.error("recovery_max_retries_exceeded", job_id=str(job_id), status=status)
+                        await self._job_repo.mark_failed(job_id, "MAX_RETRIES_EXCEEDED")
                     else:
-                        logger.warning("recovery_stuck_job_requeued", job_id=str(job.id), status=job.status)
+                        logger.warning("recovery_stuck_job_requeued", job_id=str(job_id), status=status)
                         await self._job_repo.transition(
-                            job.id, 
-                            "QUEUED", 
-                            retry_count=job.retry_count + 1,
+                            job_id,
+                            "QUEUED",
+                            retry_count=retry_count + 1,
                             kiosk_id=None,
                             printer_id=None
                         )
+                    await self._db.commit()
                     processed += 1
-                    
+
                 # Rule 3: Printing > 10 mins -> FAILED (Timeout)
-                elif job.status == "PRINTING" and time_elapsed > timedelta(minutes=10):
-                    logger.error("recovery_printing_timeout", job_id=str(job.id))
-                    await self._job_repo.mark_failed(job.id, "PRINT_TIMEOUT")
+                elif status == "PRINTING" and time_elapsed > timedelta(minutes=10):
+                    logger.error("recovery_printing_timeout", job_id=str(job_id))
+                    await self._job_repo.mark_failed(job_id, "PRINT_TIMEOUT")
+                    await self._db.commit()
                     processed += 1
 
             except Exception as e:
-                logger.error("recovery_failed_for_job", job_id=str(job.id), error=str(e))
+                logger.error("recovery_failed_for_job", job_id=str(job_id), error=str(e))
                 await self._db.rollback()
                 continue
-                
-            await self._db.commit()
 
         return processed

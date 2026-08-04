@@ -137,3 +137,64 @@ async def test_recovery_printing_timeout(db_session):
     
     await db_session.refresh(job)
     assert job.status == "FAILED"
+
+
+async def test_recovery_multiple_stuck_jobs(db_session):
+    # Verify that recovering multiple stuck jobs in a single run does not raise MissingGreenlet
+    repo = PrintJobRepository(db_session)
+    past_date = datetime.now(tz=UTC) - timedelta(minutes=20)
+
+    job1 = await repo.create(
+        session_id="test_session_multi_1",
+        uploaded_file_id=uuid.uuid4(),
+        color_mode="BW",
+        paper_size="A4",
+        copies=1,
+        duplex=False,
+        pages_selected=1,
+        pages_per_sheet=1,
+        page_range=None,
+        orientation="portrait",
+        subtotal_inr=10.0,
+        gst_inr=1.8,
+        total_inr=11.8,
+        idempotency_key="test_rec_multi_1",
+        correlation_id="test_rec_corr_m1"
+    )
+    await repo.transition(job1.id, "VALIDATED")
+    await repo.transition(job1.id, "PAYMENT_PENDING")
+    job1.updated_at = past_date
+
+    job2 = await repo.create(
+        session_id="test_session_multi_2",
+        uploaded_file_id=uuid.uuid4(),
+        color_mode="BW",
+        paper_size="A4",
+        copies=1,
+        duplex=False,
+        pages_selected=1,
+        pages_per_sheet=1,
+        page_range=None,
+        orientation="portrait",
+        subtotal_inr=10.0,
+        gst_inr=1.8,
+        total_inr=11.8,
+        idempotency_key="test_rec_multi_2",
+        correlation_id="test_rec_corr_m2"
+    )
+    await repo.transition(job2.id, "VALIDATED")
+    await repo.transition(job2.id, "PAYMENT_PENDING")
+    job2.updated_at = past_date
+
+    await db_session.commit()
+
+    service = WorkflowRecoveryService(db_session)
+    recovered = await service.recover_stuck_jobs()
+
+    assert recovered >= 2
+
+    await db_session.refresh(job1)
+    await db_session.refresh(job2)
+    assert job1.status == "CANCELLED"
+    assert job2.status == "CANCELLED"
+

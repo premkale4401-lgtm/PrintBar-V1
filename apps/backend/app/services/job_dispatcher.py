@@ -64,39 +64,57 @@ class JobDispatcher:
         dispatched = 0
         kiosk_index = 0
 
-        for job in queued_jobs:
+        # Snapshot primitive job attributes to prevent lazy-loading issues across loops
+        job_snapshots = [
+            {
+                "id": j.id,
+                "color_mode": j.color_mode,
+                "paper_size": j.paper_size,
+                "copies": j.copies,
+                "duplex": j.duplex,
+                "pages_selected": j.pages_selected,
+                "pages_per_sheet": j.pages_per_sheet,
+                "page_range": j.page_range,
+                "orientation": j.orientation,
+            }
+            for j in queued_jobs
+        ]
+
+        for job in job_snapshots:
             if kiosk_index >= len(connected_kiosks):
                 break  # No more available kiosks.
 
             kiosk = connected_kiosks[kiosk_index]
             kiosk_index += 1
 
+            job_id = job["id"]
+
             # Assign job to kiosk.
             try:
                 await self._job_repo.assign_to_kiosk(
-                    job.id,
+                    job_id,
                     kiosk.id,
                     kiosk.id,  # Use kiosk ID as printer placeholder if no printer selected.
                 )
             except Exception as exc:
                 logger.warning(
                     "dispatch_assign_failed",
-                    job_id=str(job.id),
+                    job_id=str(job_id),
                     error=str(exc),
                 )
                 continue
 
             # Build job assignment message.
             job_data = {
-                "jobId": str(job.id),
-                "colorMode": job.color_mode,
-                "paperSize": job.paper_size,
-                "copies": job.copies,
-                "duplex": job.duplex,
-                "pagesSelected": job.pages_selected,
-                "pagesPerSheet": job.pages_per_sheet,
-                "pageRange": job.page_range,
-                "orientation": job.orientation,
+                "jobId": str(job_id),
+                "colorMode": job["color_mode"],
+                "paperSize": job["paper_size"],
+                "copies": job["copies"],
+                "duplex": job["duplex"],
+                "pagesSelected": job["pages_selected"],
+                "pagesPerSheet": job["pages_per_sheet"],
+                "pageRange": job["page_range"],
+                "orientation": job["orientation"],
             }
 
             sent = await ws_manager.send_to_kiosk(
@@ -107,13 +125,13 @@ class JobDispatcher:
                 dispatched += 1
                 logger.info(
                     "job_dispatched",
-                    job_id=str(job.id),
+                    job_id=str(job_id),
                     kiosk_id=str(kiosk.id),
                 )
             else:
                 # WebSocket send failed — re-queue.
                 try:
-                    await self._job_repo.transition(job.id, "QUEUED")
+                    await self._job_repo.transition(job_id, "QUEUED")
                 except Exception:
                     pass
 

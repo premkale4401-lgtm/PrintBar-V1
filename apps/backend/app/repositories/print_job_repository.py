@@ -162,9 +162,10 @@ class PrintJobRepository:
         if job is None:
             raise JobNotFoundError()
 
-        allowed = VALID_TRANSITIONS.get(job.status, set())
+        from_status = job.status
+        allowed = VALID_TRANSITIONS.get(from_status, set())
         if to_status not in allowed:
-            raise InvalidStateTransition(job.status, to_status)
+            raise InvalidStateTransition(from_status, to_status)
 
         values: dict = {"status": to_status}
         values.update(extra_fields)
@@ -178,7 +179,7 @@ class PrintJobRepository:
         # Insert audit log for the transition.
         import json
         from app.models.audit_log import AuditLog
-        audit_details = json.dumps({"from": job.status, "to": to_status})
+        audit_details = json.dumps({"from": from_status, "to": to_status})
         audit_log = AuditLog(
             actor_type="SYSTEM",
             action="JOB_STATE_CHANGED",
@@ -195,10 +196,10 @@ class PrintJobRepository:
         logger.info(
             "print_job_transitioned",
             job_id=str(job_id),
-            from_status=job.status,
+            from_status=from_status,
             to_status=to_status,
         )
-        logger.info("DEBUG_PAYMENT: print_job_repository transition executed", job_id=str(job_id), from_status=job.status, to_status=to_status)
+        logger.info("DEBUG_PAYMENT: print_job_repository transition executed", job_id=str(job_id), from_status=from_status, to_status=to_status)
         return job
 
     async def assign_to_kiosk(
