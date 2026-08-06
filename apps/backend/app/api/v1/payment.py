@@ -439,6 +439,7 @@ async def get_payment_status(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Returns current payment status, job status, and verification stage for polling."""
+    db.expire_all()
     job_repo = PrintJobRepository(db)
     pay_repo = PaymentRepository(db)
 
@@ -448,9 +449,19 @@ async def get_payment_status(
     if not job:
         raise JobNotFoundError()
 
+    await db.refresh(job)
+
     payment = await pay_repo.get_by_print_job_id(job_id)
     payment_status = payment.status if payment else "CREATED"
     stage = _payment_to_verification_stage(payment_status, job.status)
+
+    logger.info(
+        "status_returned_by_get_payment_status",
+        job_id=str(job.id),
+        job_status=job.status,
+        payment_status=payment_status,
+        verification_stage=stage,
+    )
     logger.debug("payment_status_polled", job_id=str(job.id), job_status=job.status, payment_status=payment_status)
 
     return {

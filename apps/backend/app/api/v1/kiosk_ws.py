@@ -265,21 +265,34 @@ async def _handle_job_completed(
         return
 
     await job_repo.mark_completed(job_uuid)
+    await db.flush()
 
-    # Privacy: delete the file from storage and null PII.
+    # Privacy: delete the file from storage and null PII (safely wrapped to protect state transition).
     if job.uploaded_file_id:
-        uploaded_file = await file_repo.get_by_id(job.uploaded_file_id)
-        if uploaded_file and not uploaded_file.is_deleted and uploaded_file.storage_path:
-            await storage_service.delete_file(
-                bucket=uploaded_file.storage_bucket,
-                object_path=uploaded_file.storage_path,
-            )
-            await file_repo.mark_deleted(job.uploaded_file_id)
+        try:
+            uploaded_file = await file_repo.get_by_id(job.uploaded_file_id)
+            if uploaded_file and not uploaded_file.is_deleted and uploaded_file.storage_path:
+                await storage_service.delete_file(
+                    bucket=uploaded_file.storage_bucket,
+                    object_path=uploaded_file.storage_path,
+                )
+                await file_repo.mark_deleted(job.uploaded_file_id)
+        except Exception as exc:
+            logger.warning("ws_job_completed_file_cleanup_failed", job_id=job_id_str, error=str(exc))
 
-    from app.core.metrics import PRINT_JOB_DURATION
-    if job.created_at:
-        duration = (datetime.now(tz=UTC) - job.created_at).total_seconds()
-        PRINT_JOB_DURATION.observe(duration)
+    try:
+        from app.core.metrics import PRINT_JOB_DURATION
+        if job.created_at:
+            if isinstance(job.created_at, datetime):
+                created_dt = job.created_at
+            else:
+                created_dt = datetime.fromisoformat(str(job.created_at))
+            if created_dt.tzinfo is None:
+                created_dt = created_dt.replace(tzinfo=UTC)
+            duration = (datetime.now(tz=UTC) - created_dt).total_seconds()
+            PRINT_JOB_DURATION.observe(duration)
+    except Exception as exc:
+        logger.warning("ws_job_completed_metrics_failed", job_id=job_id_str, error=str(exc))
 
     logger.info("ws_job_completed", job_id=job_id_str, kiosk_id=kiosk_id)
 

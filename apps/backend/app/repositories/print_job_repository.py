@@ -174,8 +174,18 @@ class PrintJobRepository:
         if to_status not in allowed:
             raise InvalidStateTransition(from_status, to_status)
 
+        logger.info(
+            "database_status_before_update",
+            job_id=str(job_id),
+            db_status_before=from_status,
+            target_status=to_status,
+        )
+
         values: dict = {"status": to_status}
         values.update(extra_fields)
+
+        for k, v in values.items():
+            setattr(job, k, v)
 
         await self._db.execute(
             update(PrintJob)
@@ -197,9 +207,14 @@ class PrintJobRepository:
         )
         self._db.add(audit_log)
 
-        # Refresh the instance.
+        await self._db.flush()
         await self._db.refresh(job)
 
+        logger.info(
+            "database_status_after_update",
+            job_id=str(job_id),
+            db_status_after=job.status,
+        )
         logger.info(
             "print_job_transitioned",
             job_id=str(job_id),
