@@ -237,3 +237,46 @@ async def test_upload_valid_pdf_succeeds(async_client) -> None:
     assert body["success"] is True
     assert "fileId" in body["data"]
     assert body["data"]["pageCount"] == 1
+
+
+class TestScannedPDFValidation:
+    """Tests that scanned, image-only, and mobile-scan PDFs pass validation cleanly."""
+
+    def test_scanned_image_only_pdf_passes(self) -> None:
+        validator = PDFValidator()
+        # Create a PDF containing an image page (simulating CamScanner / scanned PDF)
+        from PIL import Image
+        img = Image.new("RGB", (600, 800), color=(200, 200, 200))
+        img_buf = io.BytesIO()
+        img.save(img_buf, format="PDF")
+        scanned_pdf_bytes = img_buf.getvalue()
+
+        page_count = validator.validate("scanned_doc.pdf", "application/pdf", scanned_pdf_bytes)
+        assert page_count == 1
+
+
+class TestImageUploadValidation:
+    """Tests validation for image file uploads (JPG, PNG)."""
+
+    def test_jpg_validation_passes(self) -> None:
+        validator = PDFValidator()
+        from PIL import Image
+        img = Image.new("RGB", (100, 100), color="red")
+        img_buf = io.BytesIO()
+        img.save(img_buf, format="JPEG")
+        jpg_bytes = img_buf.getvalue()
+
+        count = validator.validate("scan.jpg", "image/jpeg", jpg_bytes)
+        assert count == 1
+
+    def test_png_validation_passes(self) -> None:
+        validator = PDFValidator()
+        from PIL import Image
+        img = Image.new("RGBA", (100, 100), color="blue")
+        img_buf = io.BytesIO()
+        img.save(img_buf, format="PNG")
+        png_bytes = img_buf.getvalue()
+
+        count = validator.validate("scan.png", "image/png", png_bytes)
+        assert count == 1
+

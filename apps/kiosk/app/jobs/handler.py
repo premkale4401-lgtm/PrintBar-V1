@@ -190,16 +190,48 @@ class JobHandler:
                 duplex = job_data.get("duplex", False)
                 paper_size = job_data.get("paperSize", "A4")
                 orientation = job_data.get("orientation", "portrait")
+                pages_per_sheet = job_data.get("pagesPerSheet", job_data.get("pages_per_sheet", 1))
+                page_range = job_data.get("pageRange", job_data.get("page_range"))
+                reverse_order = job_data.get("reverseOrder", job_data.get("reverse_order", False))
+                scale_mode = job_data.get("scaleMode", "fit")
+                margin_mode = job_data.get("marginMode", "default")
 
                 t_print_start = loop.time()
                 logger.info(
-                    "PRINT_STARTED job_id=%s kiosk_id=%s copies=%s color=%s duplex=%s paper=%s ts=%s",
-                    job_id, kiosk_id, copies, color_mode, duplex, paper_size, _now(),
+                    "PRINT_STARTED job_id=%s kiosk_id=%s copies=%s color=%s duplex=%s paper=%s nup=%s page_range=%s ts=%s",
+                    job_id, kiosk_id, copies, color_mode, duplex, paper_size, pages_per_sheet, page_range, _now(),
                 )
+
+                # Stage 4.5: Run PDF Transformation Pipeline
+                from app.jobs.transformer import pdf_transformer
+                transformed_pdf_path = pdf_path + ".transformed.pdf"
+                try:
+                    t_trans_start = loop.time()
+                    pdf_to_print = pdf_transformer.transform(
+                        pdf_path,
+                        transformed_pdf_path,
+                        page_range=page_range,
+                        reverse_order=reverse_order,
+                        pages_per_sheet=pages_per_sheet,
+                        orientation=orientation,
+                        paper_size=paper_size,
+                        color_mode=color_mode,
+                        scale_mode=scale_mode,
+                        margin_mode=margin_mode,
+                    )
+                    t_trans_done = loop.time()
+                    logger.info(
+                        "PDF_TRANSFORMED job_id=%s duration_ms=%d path=%s ts=%s",
+                        job_id, _ms(t_trans_start, t_trans_done), pdf_to_print, _now(),
+                    )
+                except Exception as exc:
+                    logger.error("PDF_TRANSFORMATION_FAILED job_id=%s error=%s fallback_to_raw=True", job_id, str(exc))
+                    pdf_to_print = pdf_path
+                    transformed_pdf_path = None
 
                 # Stage 5: Submit to CUPS.
                 cups_job_id = self._printer.submit_job(
-                    pdf_path,
+                    pdf_to_print,
                     copies=copies,
                     color_mode=color_mode,
                     duplex=duplex,
@@ -262,6 +294,8 @@ class JobHandler:
                 if pdf_path:
                     try:
                         await self._downloader.async_cleanup(pdf_path)
+                        if 'transformed_pdf_path' in locals() and transformed_pdf_path and os.path.exists(transformed_pdf_path):
+                            os.remove(transformed_pdf_path)
                         logger.info(
                             "TEMP_FILE_REMOVED job_id=%s kiosk_id=%s path=%s ts=%s",
                             job_id, kiosk_id, pdf_path, _now(),

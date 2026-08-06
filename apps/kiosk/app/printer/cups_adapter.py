@@ -161,10 +161,13 @@ class CupsAdapter:
         if conn is not None:
             options = {
                 "copies": str(copies),
-                "ColorModel": "Gray" if color_mode == "BW" else "RGB",
+                "ColorModel": "Gray" if color_mode.upper() == "BW" else "RGB",
+                "print-color-mode": "monochrome" if color_mode.upper() == "BW" else "color",
                 "Duplex": "DuplexNoTumble" if duplex else "None",
+                "sides": "two-sided-long-edge" if duplex else "one-sided",
                 "PageSize": paper_size,
-                "orientation-requested": "4" if orientation == "landscape" else "3",
+                "media": paper_size,
+                "orientation-requested": "4" if orientation.lower() == "landscape" else "3",
                 "fit-to-page": "True",
             }
             try:
@@ -175,6 +178,8 @@ class CupsAdapter:
                     printer=self._printer_name,
                     copies=copies,
                     color=color_mode,
+                    duplex=duplex,
+                    paper=paper_size,
                 )
                 return job_id
             except Exception as exc:
@@ -187,10 +192,17 @@ class CupsAdapter:
             import shutil
             if shutil.which("lp"):
                 cmd = ["lp", "-d", self._printer_name or "PrintBar", "-n", str(copies)]
-                if color_mode == "BW":
-                    cmd.extend(["-o", "ColorModel=Gray"])
+                if color_mode.upper() == "BW":
+                    cmd.extend(["-o", "ColorModel=Gray", "-o", "print-color-mode=monochrome"])
+                else:
+                    cmd.extend(["-o", "ColorModel=RGB", "-o", "print-color-mode=color"])
                 if duplex:
-                    cmd.extend(["-o", "sides=two-sided-long-edge"])
+                    cmd.extend(["-o", "sides=two-sided-long-edge", "-o", "Duplex=DuplexNoTumble"])
+                else:
+                    cmd.extend(["-o", "sides=one-sided", "-o", "Duplex=None"])
+                cmd.extend(["-o", f"media={paper_size}", "-o", "fit-to-page=true"])
+                if orientation.lower() == "landscape":
+                    cmd.extend(["-o", "orientation-requested=4"])
                 cmd.append(pdf_path)
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 logger.info("lp_cmd_submitted", stdout=res.stdout.strip(), stderr=res.stderr.strip())

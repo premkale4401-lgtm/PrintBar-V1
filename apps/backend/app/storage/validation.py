@@ -290,18 +290,22 @@ class PDFValidator:
 
     def _step10_check_corruption(self, reader) -> None:  # type: ignore[no-untyped-def]
         """
-        Step 10: All pages must be readable without errors.
+        Step 10: All pages must be structurally readable without errors.
 
-        Attempts to extract text from each page to detect corrupted streams.
-        Stops at the first unreadable page.
+        Verifies that page dictionary objects exist and have valid media bounds.
+        Does NOT rely on text extraction (extract_text) which fails on scanned,
+        OCR-less, mobile-scanned (CamScanner/Adobe Scan/Lens), and image-only PDFs.
         """
         try:
-            for i, page in enumerate(reader.pages):
+            for i in range(len(reader.pages)):
                 try:
-                    page.extract_text()
+                    page = reader.pages[i]
+                    # Access mediabox or rotation to confirm structural integrity
+                    _ = page.mediabox
                 except Exception as exc:
                     logger.warning(
                         "upload_validation_fail_corruption",
+                        validation_rejection_reason="CORRUPTED_PAGE_OBJECT",
                         page_index=i,
                         error=str(exc),
                     )
@@ -309,7 +313,11 @@ class PDFValidator:
         except CorruptedPDFError:
             raise
         except Exception as exc:
-            logger.warning("upload_validation_fail_read", error=str(exc))
+            logger.warning(
+                "upload_validation_fail_read",
+                validation_rejection_reason="UNREADABLE_PDF_CATALOG",
+                error=str(exc),
+            )
             raise CorruptedPDFError()
 
     def _validate_image(self, extension: str, file_bytes: bytes) -> int:
