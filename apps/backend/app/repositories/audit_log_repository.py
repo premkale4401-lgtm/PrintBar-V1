@@ -1,9 +1,10 @@
-﻿"""
+"""
 PrintBar Backend — Audit Log Repository
 
 Append-only data access for AuditLog records.
 Records are NEVER updated or deleted.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -15,6 +16,7 @@ from app.core.logging import get_logger
 from app.models.audit_log import AuditLog
 
 logger = get_logger(__name__)
+
 
 class AuditLogRepository:
     """Append-only repository for AuditLog records."""
@@ -55,7 +57,9 @@ class AuditLogRepository:
         await self._db.flush()
         return entry
 
-    async def list_paginated(self, *, limit: int = 50, offset: int = 0) -> tuple[list[AuditLog], int]:
+    async def list_paginated(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[AuditLog], int]:
         """Returns a page of audit log entries, newest first."""
         total_result = await self._db.execute(select(func.count(AuditLog.id)))
         total = total_result.scalar() or 0

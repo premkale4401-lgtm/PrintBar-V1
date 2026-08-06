@@ -3,6 +3,7 @@ PrintBar Kiosk Agent — Retry Utility
 
 Exponential backoff helper for network operations.
 """
+
 from __future__ import annotations
 import asyncio
 import logging
@@ -51,7 +52,9 @@ async def retry_with_backoff(
             last_exc = exc
             if attempt == max_attempts:
                 break
-            logger.warning(f"{label} failed (attempt {attempt}/{max_attempts}): {exc}. Retrying in {delay:.1f}s")
+            logger.warning(
+                f"{label} failed (attempt {attempt}/{max_attempts}): {exc}. Retrying in {delay:.1f}s"
+            )
             await asyncio.sleep(delay)
             delay = min(delay * 2, max_delay)
 

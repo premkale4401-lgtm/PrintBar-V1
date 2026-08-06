@@ -1,8 +1,9 @@
-﻿"""
+"""
 PrintBar Kiosk Agent — Printer Status Poller
 
 Polls CUPS for printer health and reports to the kiosk agent.
 """
+
 from __future__ import annotations
 import asyncio
 import logging

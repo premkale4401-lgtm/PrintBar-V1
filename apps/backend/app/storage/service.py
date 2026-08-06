@@ -240,9 +240,7 @@ class SupabaseStorageService:
                 last_error = StorageError(f"Signed URL failed: HTTP {response.status_code}")
 
             except httpx.TimeoutException as exc:
-                logger.warning(
-                    "storage_signed_url_timeout", bucket=bucket, attempt=attempt
-                )
+                logger.warning("storage_signed_url_timeout", bucket=bucket, attempt=attempt)
                 last_error = exc
             except httpx.RequestError as exc:
                 logger.error("storage_signed_url_request_error", error=str(exc))
@@ -363,6 +361,7 @@ class SupabaseStorageService:
             Storage path string (relative to bucket root).
         """
         from datetime import UTC, datetime
+
         now = datetime.now(tz=UTC)
         return f"{now.year}/{now.month:02d}/{session_id[:8]}/{file_id}.pdf"
 
@@ -377,8 +376,10 @@ class LocalStorageService:
     file over the LAN. The backend must mount /local-storage as a static
     file route (done in main.py when SUPABASE_URL is not set).
     """
+
     def __init__(self) -> None:
         import os
+
         self.base_dir = os.path.abspath(os.path.join(os.getcwd(), "data", "storage"))
         os.makedirs(self.base_dir, exist_ok=True)
         # Use the backend's own base URL so the Raspberry Pi can resolve it.
@@ -393,6 +394,7 @@ class LocalStorageService:
         content_type: str = "application/pdf",
     ) -> str:
         import os
+
         full_path = os.path.join(self.base_dir, bucket, object_path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
@@ -403,7 +405,7 @@ class LocalStorageService:
                 "local_storage_upload_success",
                 bucket=bucket,
                 path=object_path,
-                size_bytes=len(file_data)
+                size_bytes=len(file_data),
             )
             return f"{bucket}/{object_path}"
         except Exception as e:
@@ -428,12 +430,15 @@ class LocalStorageService:
         url = f"{self._backend_base_url}/local-storage/{bucket}/{object_path}"
         logger.info(
             "SIGNED_URL_CREATED bucket=%s path=%s url=%s ts=local_storage",
-            bucket, object_path, url,
+            bucket,
+            object_path,
+            url,
         )
         return url
 
     async def delete_file(self, bucket: str, object_path: str) -> bool:
         import os
+
         full_path = os.path.join(self.base_dir, bucket, object_path)
         if os.path.exists(full_path):
             try:
@@ -443,12 +448,13 @@ class LocalStorageService:
             except Exception as e:
                 logger.error("local_storage_delete_failed", error=str(e))
                 raise StorageError(f"Failed to delete local file: {str(e)}") from e
-        
+
         logger.warning("local_storage_delete_not_found", bucket=bucket, path=object_path)
         return False
 
     async def file_exists(self, bucket: str, object_path: str) -> bool:
         import os
+
         full_path = os.path.join(self.base_dir, bucket, object_path)
         return os.path.exists(full_path)
 

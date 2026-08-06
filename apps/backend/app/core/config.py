@@ -62,7 +62,9 @@ class Settings(BaseSettings):
     REDIS_MAX_CONNECTIONS: int = 20
 
     # ─── Supabase Storage ──────────────────────────────────────────────────────
-    SUPABASE_URL: str = Field(default="", description="Supabase project URL. Optional in development.")
+    SUPABASE_URL: str = Field(
+        default="", description="Supabase project URL. Optional in development."
+    )
     SUPABASE_SERVICE_ROLE_KEY: str = Field(
         default="",
         description="Supabase service role key (never the anon key). Optional in development.",
@@ -74,7 +76,10 @@ class Settings(BaseSettings):
     SIGNED_URL_EXPIRY_SECONDS: int = 300  # 5 minutes
 
     # ─── JWT ───────────────────────────────────────────────────────────────────
-    JWT_SECRET: str = Field(default="dev_secret_key_needs_64_characters" + "a" * 30, description="Secret key for signing JWTs. Min 64 chars.")
+    JWT_SECRET: str = Field(
+        default="dev_secret_key_needs_64_characters" + "a" * 30,
+        description="Secret key for signing JWTs. Min 64 chars.",
+    )
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
@@ -122,7 +127,10 @@ class Settings(BaseSettings):
     RAZORPAY_CURRENCY: str = "INR"
 
     # ─── WebSocket ─────────────────────────────────────────────────────────────
-    WS_SECRET: str = Field(default="dev_ws_secret_needs_32_chars_123", description="Shared secret for WebSocket message signing")
+    WS_SECRET: str = Field(
+        default="dev_ws_secret_needs_32_chars_123",
+        description="Shared secret for WebSocket message signing",
+    )
     WS_HEARTBEAT_INTERVAL_SECONDS: int = 30
     WS_KIOSK_OFFLINE_THRESHOLD_SECONDS: int = 90
 
@@ -239,15 +247,22 @@ class Settings(BaseSettings):
         if self.REDIS_URL and not self.REDIS_URL.startswith("redis"):
             raise ValueError("REDIS_URL must be a valid Redis URL")
 
-        if not self.DATABASE_URL.startswith("postgresql+asyncpg") and "sqlite" not in self.DATABASE_URL:
-            raise ValueError("DATABASE_URL must be a valid asyncpg PostgreSQL or SQLite connection string")
+        if (
+            not self.DATABASE_URL.startswith("postgresql+asyncpg")
+            and "sqlite" not in self.DATABASE_URL
+        ):
+            raise ValueError(
+                "DATABASE_URL must be a valid asyncpg PostgreSQL or SQLite connection string"
+            )
 
-        if not all([
-            self.STORAGE_BUCKET_PRINT_FILES,
-            self.STORAGE_BUCKET_RECEIPTS,
-            self.STORAGE_BUCKET_REPORTS,
-            self.STORAGE_BUCKET_SYSTEM_ASSETS
-        ]):
+        if not all(
+            [
+                self.STORAGE_BUCKET_PRINT_FILES,
+                self.STORAGE_BUCKET_RECEIPTS,
+                self.STORAGE_BUCKET_REPORTS,
+                self.STORAGE_BUCKET_SYSTEM_ASSETS,
+            ]
+        ):
             raise ValueError("All storage buckets must be configured (cannot be empty)")
 
         if len(self.WS_SECRET) < 32:

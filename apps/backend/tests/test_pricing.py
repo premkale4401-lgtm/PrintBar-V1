@@ -4,6 +4,7 @@ PrintBar Backend — Pricing Service Tests
 Unit tests for the PricingService using pure computation (no DB needed
 for the _compute path).
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -43,8 +44,13 @@ class TestPricingServiceCompute:
     def test_bw_a4_single_page(self) -> None:
         rule = _make_rule(bw=2.00, gst=18.00)
         calc = self.service._compute(
-            rule=rule, pages_selected=1, color_mode="BW",
-            paper_size="A4", copies=1, duplex=False, pages_per_sheet=1,
+            rule=rule,
+            pages_selected=1,
+            color_mode="BW",
+            paper_size="A4",
+            copies=1,
+            duplex=False,
+            pages_per_sheet=1,
         )
         # 1 sheet × ₹2.00 = ₹2.00 subtotal; 18% GST = ₹0.36; total = ₹2.36
         assert calc.sheets == 1
@@ -55,8 +61,13 @@ class TestPricingServiceCompute:
     def test_color_a4(self) -> None:
         rule = _make_rule(color=5.00, gst=18.00)
         calc = self.service._compute(
-            rule=rule, pages_selected=1, color_mode="COLOR",
-            paper_size="A4", copies=1, duplex=False, pages_per_sheet=1,
+            rule=rule,
+            pages_selected=1,
+            color_mode="COLOR",
+            paper_size="A4",
+            copies=1,
+            duplex=False,
+            pages_per_sheet=1,
         )
         assert calc.subtotal_inr == Decimal("5.00")
         assert calc.total_inr == Decimal("5.90")
@@ -64,8 +75,13 @@ class TestPricingServiceCompute:
     def test_a3_multiplier(self) -> None:
         rule = _make_rule(bw=2.00, a3=1.75, gst=18.00)
         calc = self.service._compute(
-            rule=rule, pages_selected=1, color_mode="BW",
-            paper_size="A3", copies=1, duplex=False, pages_per_sheet=1,
+            rule=rule,
+            pages_selected=1,
+            color_mode="BW",
+            paper_size="A3",
+            copies=1,
+            duplex=False,
+            pages_per_sheet=1,
         )
         # 2.00 × 1.75 = 3.50 per sheet
         assert calc.price_per_sheet == Decimal("3.50")
@@ -73,16 +89,26 @@ class TestPricingServiceCompute:
     def test_legal_multiplier(self) -> None:
         rule = _make_rule(bw=2.00, legal=1.25, gst=18.00)
         calc = self.service._compute(
-            rule=rule, pages_selected=1, color_mode="BW",
-            paper_size="LEGAL", copies=1, duplex=False, pages_per_sheet=1,
+            rule=rule,
+            pages_selected=1,
+            color_mode="BW",
+            paper_size="LEGAL",
+            copies=1,
+            duplex=False,
+            pages_per_sheet=1,
         )
         assert calc.price_per_sheet == Decimal("2.50")
 
     def test_multiple_copies(self) -> None:
         rule = _make_rule(bw=2.00, gst=18.00)
         calc = self.service._compute(
-            rule=rule, pages_selected=10, color_mode="BW",
-            paper_size="A4", copies=3, duplex=False, pages_per_sheet=1,
+            rule=rule,
+            pages_selected=10,
+            color_mode="BW",
+            paper_size="A4",
+            copies=3,
+            duplex=False,
+            pages_per_sheet=1,
         )
         # 10 sheets/copy × 3 copies = 30 sheets
         assert calc.sheets == 30
@@ -91,8 +117,13 @@ class TestPricingServiceCompute:
     def test_duplex_halves_sheets(self) -> None:
         rule = _make_rule(bw=2.00, gst=18.00)
         calc = self.service._compute(
-            rule=rule, pages_selected=10, color_mode="BW",
-            paper_size="A4", copies=1, duplex=True, pages_per_sheet=1,
+            rule=rule,
+            pages_selected=10,
+            color_mode="BW",
+            paper_size="A4",
+            copies=1,
+            duplex=True,
+            pages_per_sheet=1,
         )
         # ceil(10/2) = 5 sheets
         assert calc.sheets == 5
@@ -100,8 +131,13 @@ class TestPricingServiceCompute:
     def test_duplex_odd_pages_rounds_up(self) -> None:
         rule = _make_rule(bw=2.00, gst=18.00)
         calc = self.service._compute(
-            rule=rule, pages_selected=7, color_mode="BW",
-            paper_size="A4", copies=1, duplex=True, pages_per_sheet=1,
+            rule=rule,
+            pages_selected=7,
+            color_mode="BW",
+            paper_size="A4",
+            copies=1,
+            duplex=True,
+            pages_per_sheet=1,
         )
         # ceil(7/2) = 4 sheets
         assert calc.sheets == 4
@@ -109,8 +145,13 @@ class TestPricingServiceCompute:
     def test_pages_per_sheet_2(self) -> None:
         rule = _make_rule(bw=2.00, gst=18.00)
         calc = self.service._compute(
-            rule=rule, pages_selected=4, color_mode="BW",
-            paper_size="A4", copies=1, duplex=False, pages_per_sheet=2,
+            rule=rule,
+            pages_selected=4,
+            color_mode="BW",
+            paper_size="A4",
+            copies=1,
+            duplex=False,
+            pages_per_sheet=2,
         )
         # ceil(4/2) = 2 sheets
         assert calc.sheets == 2
@@ -119,16 +160,26 @@ class TestPricingServiceCompute:
         # With very low prices, total should be at least ₹1.00
         rule = _make_rule(bw=0.01, gst=0.00)
         calc = self.service._compute(
-            rule=rule, pages_selected=1, color_mode="BW",
-            paper_size="A4", copies=1, duplex=False, pages_per_sheet=1,
+            rule=rule,
+            pages_selected=1,
+            color_mode="BW",
+            paper_size="A4",
+            copies=1,
+            duplex=False,
+            pages_per_sheet=1,
         )
         assert calc.total_inr >= MINIMUM_TOTAL_INR
 
     def test_to_dict_returns_strings(self) -> None:
         rule = _make_rule()
         calc = self.service._compute(
-            rule=rule, pages_selected=1, color_mode="BW",
-            paper_size="A4", copies=1, duplex=False, pages_per_sheet=1,
+            rule=rule,
+            pages_selected=1,
+            color_mode="BW",
+            paper_size="A4",
+            copies=1,
+            duplex=False,
+            pages_per_sheet=1,
         )
         d = calc.to_dict()
         assert isinstance(d["subtotalInr"], str)

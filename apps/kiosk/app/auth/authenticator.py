@@ -4,6 +4,7 @@ PrintBar Kiosk Agent — Authenticator
 Exchanges the raw API key for a JWT access token.
 Called once at startup. Token is re-requested if it expires.
 """
+
 from __future__ import annotations
 import logging
 import httpx
@@ -32,7 +33,10 @@ class Authenticator:
             RuntimeError: If authentication fails.
         """
         url = f"{self._settings.backend_url}/api/v1/kiosks/auth"
-        payload = {"kiosk_id": self._settings.kiosk_id, "api_key": self._settings.api_key}
+        payload = {
+            "kiosk_id": self._settings.kiosk_id,
+            "api_key": self._settings.api_key,
+        }
 
         async def _do_auth():
             async with httpx.AsyncClient(timeout=10, verify=False) as client:

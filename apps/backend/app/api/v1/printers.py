@@ -11,6 +11,7 @@ These endpoints expose printer data to the admin dashboard.
 
 All endpoints require admin authentication.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -34,15 +35,19 @@ router = APIRouter(prefix="/printers", tags=["Printer Management"])
 
 # ─── Request Schemas ──────────────────────────────────────────────────────────
 
+
 class PrinterUpdateRequest(BaseModel):
     """Request body for updating a printer's configuration."""
 
-    is_default: bool | None = Field(default=None, description="Set as primary printer for the kiosk.")
+    is_default: bool | None = Field(
+        default=None, description="Set as primary printer for the kiosk."
+    )
     is_color: bool | None = Field(default=None, description="Color printing support override.")
     is_duplex: bool | None = Field(default=None, description="Duplex printing support override.")
 
 
 # ─── List Printers ────────────────────────────────────────────────────────────
+
 
 @router.get(
     "",
@@ -55,9 +60,7 @@ async def list_printers(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Returns all printer records from the database."""
-    result = await db.execute(
-        select(Printer).order_by(Printer.created_at)
-    )
+    result = await db.execute(select(Printer).order_by(Printer.created_at))
     printers = result.scalars().all()
 
     return JSONResponse(
@@ -92,6 +95,7 @@ async def list_printers(
 
 # ─── Get Printer Detail ────────────────────────────────────────────────────────
 
+
 @router.get(
     "/{printer_id}",
     status_code=status.HTTP_200_OK,
@@ -104,9 +108,7 @@ async def get_printer(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Returns a single printer record."""
-    result = await db.execute(
-        select(Printer).where(Printer.id == printer_id)
-    )
+    result = await db.execute(select(Printer).where(Printer.id == printer_id))
     printer = result.scalar_one_or_none()
 
     if not printer:
@@ -144,6 +146,7 @@ async def get_printer(
 
 # ─── Update Printer ────────────────────────────────────────────────────────────
 
+
 @router.patch(
     "/{printer_id}",
     status_code=status.HTTP_200_OK,
@@ -157,9 +160,7 @@ async def update_printer(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Updates admin-configurable printer fields."""
-    result = await db.execute(
-        select(Printer).where(Printer.id == printer_id)
-    )
+    result = await db.execute(select(Printer).where(Printer.id == printer_id))
     printer = result.scalar_one_or_none()
 
     if not printer:
@@ -204,6 +205,7 @@ async def update_printer(
 
 
 # ─── Test Print ────────────────────────────────────────────────────────────────
+
 
 @router.post(
     "/test-print",

@@ -32,6 +32,7 @@ Dependencies:
     - Pillow>=10.4.0  (pip install Pillow) — for PNG/JPG conversion
     - LibreOffice     (system package)     — for DOC/DOCX conversion
 """
+
 from __future__ import annotations
 
 import io
@@ -158,17 +159,17 @@ class DocumentProcessor:
         except (OSError, SyntaxError, ValueError) as exc:
             logger.warning(
                 "document_processor_image_conversion_failed ext=%s error=%s",
-                ext, str(exc),
+                ext,
+                str(exc),
             )
-            raise InvalidPDFError(
-                f"Could not convert {ext.upper()} image to PDF: {exc}"
-            ) from exc
+            raise InvalidPDFError(f"Could not convert {ext.upper()} image to PDF: {exc}") from exc
 
         # Final safety check — assert the output really is a PDF.
         page_count = self._validate_pdf_result(pdf_bytes, source=f"{ext.upper()} image")
         logger.info(
             "document_processor_image_converted ext=%s pdf_size=%d",
-            ext, len(pdf_bytes),
+            ext,
+            len(pdf_bytes),
         )
         return pdf_bytes, page_count
 
@@ -218,8 +219,10 @@ class DocumentProcessor:
                     soffice,
                     "--headless",
                     "--norestore",
-                    "--convert-to", "pdf",
-                    "--outdir", tmpdir,
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    tmpdir,
                     src_path,
                 ],
                 capture_output=True,
@@ -230,7 +233,9 @@ class DocumentProcessor:
             if result.returncode != 0:
                 logger.warning(
                     "document_processor_libreoffice_failed ext=%s returncode=%d stderr=%s",
-                    ext, result.returncode, result.stderr[:200],
+                    ext,
+                    result.returncode,
+                    result.stderr[:200],
                 )
                 raise InvalidPDFError(
                     f"LibreOffice could not convert the {ext.upper()} file to PDF. "
@@ -260,7 +265,9 @@ class DocumentProcessor:
         page_count = self._validate_pdf_result(pdf_bytes, source=f"{ext.upper()} document")
         logger.info(
             "document_processor_office_converted ext=%s pdf_size=%d pages=%d",
-            ext, len(pdf_bytes), page_count,
+            ext,
+            len(pdf_bytes),
+            page_count,
         )
         return pdf_bytes, page_count
 
@@ -287,7 +294,8 @@ class DocumentProcessor:
             actual_header = pdf_bytes[:8] if pdf_bytes else b"<empty>"
             logger.error(
                 "document_processor_invalid_pdf_result source=%s header=%r",
-                source, actual_header,
+                source,
+                actual_header,
             )
             raise InvalidPDFError(
                 f"Conversion from {source} produced invalid PDF bytes "
@@ -296,19 +304,19 @@ class DocumentProcessor:
 
         try:
             from pypdf import PdfReader
+
             reader = PdfReader(io.BytesIO(pdf_bytes), strict=False)
             page_count = len(reader.pages)
             if page_count < 1:
-                raise InvalidPDFError(
-                    f"Conversion from {source} produced a PDF with 0 pages."
-                )
+                raise InvalidPDFError(f"Conversion from {source} produced a PDF with 0 pages.")
             return page_count
         except InvalidPDFError:
             raise
         except Exception as exc:
             logger.error(
                 "document_processor_pdf_parse_failed source=%s error=%s",
-                source, str(exc),
+                source,
+                str(exc),
             )
             raise InvalidPDFError(
                 f"Conversion from {source} produced an unparseable PDF: {exc}"

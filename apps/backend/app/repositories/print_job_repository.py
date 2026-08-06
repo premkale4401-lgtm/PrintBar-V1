@@ -29,21 +29,25 @@ logger = get_logger(__name__)
 #   - QUEUED → QUEUED allows idempotent re-queue when dispatch fails.
 #   - DOWNLOAD_FAILED → QUEUED allows retry after transient download failures.
 VALID_TRANSITIONS: dict[str, set[str]] = {
-    "UPLOADED":         {"VALIDATED", "CANCELLED"},
-    "VALIDATED":        {"PAYMENT_PENDING", "CANCELLED"},
-    "PAYMENT_PENDING":  {"PAYMENT_SUCCESS", "PAYMENT_FAILED", "CANCELLED"},
-    "PAYMENT_SUCCESS":  {"QUEUED"},
-    "QUEUED":           {"ASSIGNED", "QUEUED", "CANCELLED"},  # QUEUED→QUEUED = idempotent re-queue
-    "ASSIGNED":         {"DOWNLOADING", "QUEUED"},            # QUEUED = re-queue on kiosk failure
-    "DOWNLOADING":      {"READY_TO_PRINT", "PRINTING", "DOWNLOAD_FAILED"},  # PRINTING = direct kiosk path
-    "READY_TO_PRINT":   {"PRINTING"},
-    "PRINTING":         {"COMPLETED", "FAILED"},
+    "UPLOADED": {"VALIDATED", "CANCELLED"},
+    "VALIDATED": {"PAYMENT_PENDING", "CANCELLED"},
+    "PAYMENT_PENDING": {"PAYMENT_SUCCESS", "PAYMENT_FAILED", "CANCELLED"},
+    "PAYMENT_SUCCESS": {"QUEUED"},
+    "QUEUED": {"ASSIGNED", "QUEUED", "CANCELLED"},  # QUEUED→QUEUED = idempotent re-queue
+    "ASSIGNED": {"DOWNLOADING", "QUEUED"},  # QUEUED = re-queue on kiosk failure
+    "DOWNLOADING": {
+        "READY_TO_PRINT",
+        "PRINTING",
+        "DOWNLOAD_FAILED",
+    },  # PRINTING = direct kiosk path
+    "READY_TO_PRINT": {"PRINTING"},
+    "PRINTING": {"COMPLETED", "FAILED"},
     # Terminal states — no further transitions.
-    "COMPLETED":        set(),
-    "FAILED":           set(),
-    "CANCELLED":        set(),
-    "PAYMENT_FAILED":   set(),
-    "DOWNLOAD_FAILED":  {"QUEUED"},  # Allow re-queue after download failure.
+    "COMPLETED": set(),
+    "FAILED": set(),
+    "CANCELLED": set(),
+    "PAYMENT_FAILED": set(),
+    "DOWNLOAD_FAILED": {"QUEUED"},  # Allow re-queue after download failure.
 }
 
 
@@ -107,14 +111,10 @@ class PrintJobRepository:
         return job
 
     async def get_by_id(self, job_id: uuid.UUID) -> PrintJob | None:
-        result = await self._db.execute(
-            select(PrintJob).where(PrintJob.id == job_id)
-        )
+        result = await self._db.execute(select(PrintJob).where(PrintJob.id == job_id))
         return result.scalar_one_or_none()
 
-    async def get_by_id_and_session(
-        self, job_id: uuid.UUID, session_id: str
-    ) -> PrintJob | None:
+    async def get_by_id_and_session(self, job_id: uuid.UUID, session_id: str) -> PrintJob | None:
         result = await self._db.execute(
             select(PrintJob).where(
                 PrintJob.id == job_id,
@@ -124,17 +124,13 @@ class PrintJobRepository:
         return result.scalar_one_or_none()
 
     async def get_by_idempotency_key(self, key: str) -> PrintJob | None:
-        result = await self._db.execute(
-            select(PrintJob).where(PrintJob.idempotency_key == key)
-        )
+        result = await self._db.execute(select(PrintJob).where(PrintJob.idempotency_key == key))
         return result.scalar_one_or_none()
 
     async def get_queued_jobs(self) -> list[PrintJob]:
         """Returns all jobs in QUEUED status, ordered by creation time (FIFO)."""
         result = await self._db.execute(
-            select(PrintJob)
-            .where(PrintJob.status == "QUEUED")
-            .order_by(PrintJob.created_at.asc())
+            select(PrintJob).where(PrintJob.status == "QUEUED").order_by(PrintJob.created_at.asc())
         )
         return list(result.scalars().all())
 
@@ -142,7 +138,18 @@ class PrintJobRepository:
         """Returns all jobs in active non-terminal statuses."""
         result = await self._db.execute(
             select(PrintJob)
-            .where(PrintJob.status.in_(["PAYMENT_PENDING", "QUEUED", "ASSIGNED", "DOWNLOADING", "READY_TO_PRINT", "PRINTING"]))
+            .where(
+                PrintJob.status.in_(
+                    [
+                        "PAYMENT_PENDING",
+                        "QUEUED",
+                        "ASSIGNED",
+                        "DOWNLOADING",
+                        "READY_TO_PRINT",
+                        "PRINTING",
+                    ]
+                )
+            )
             .order_by(PrintJob.created_at.asc())
         )
         return list(result.scalars().all())
@@ -187,15 +194,13 @@ class PrintJobRepository:
         for k, v in values.items():
             setattr(job, k, v)
 
-        await self._db.execute(
-            update(PrintJob)
-            .where(PrintJob.id == job_id)
-            .values(**values)
-        )
+        await self._db.execute(update(PrintJob).where(PrintJob.id == job_id).values(**values))
 
         # Insert audit log for the transition.
         import json
+
         from app.models.audit_log import AuditLog
+
         audit_details = json.dumps({"from": from_status, "to": to_status})
         audit_log = AuditLog(
             actor_type="SYSTEM",

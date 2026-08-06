@@ -13,11 +13,13 @@ final production release:
     - GET  /admin/audit-logs
     - GET  /admin/users
 """
+
 from __future__ import annotations
 
 import pytest
 
 # ─── Auth Guard Tests ─────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_admin_dashboard_requires_auth(async_client):
@@ -37,6 +39,7 @@ async def test_admin_kiosks_list_requires_auth(async_client):
 async def test_admin_kiosk_detail_requires_auth(async_client):
     """GET /admin/kiosks/{id} must return 401 without auth."""
     import uuid
+
     resp = await async_client.get(f"/api/v1/admin/kiosks/{uuid.uuid4()}")
     assert resp.status_code == 401
 
@@ -98,6 +101,7 @@ async def test_system_status_requires_auth(async_client):
 
 # ─── Create Kiosk Request Validation ─────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_create_kiosk_requires_super_admin(async_client):
     """POST /admin/kiosks must return 401 without auth (not 422)."""
@@ -112,11 +116,13 @@ async def test_create_kiosk_requires_super_admin(async_client):
 async def test_admin_kiosk_rotate_key_requires_auth(async_client):
     """POST /admin/kiosks/{id}/rotate-key must return 401 without auth."""
     import uuid
+
     resp = await async_client.post(f"/api/v1/admin/kiosks/{uuid.uuid4()}/rotate-key")
     assert resp.status_code == 401
 
 
 # ─── Response Structure Tests (unauthenticated → 401 with proper error schema) ─
+
 
 @pytest.mark.asyncio
 async def test_admin_401_response_structure(async_client):
@@ -133,6 +139,7 @@ async def test_admin_401_response_structure(async_client):
 
 # ─── Jobs Endpoint Pagination Validation ─────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_admin_jobs_invalid_page_param_rejected(async_client):
     """GET /admin/jobs with page=0 should be rejected with 401 (auth before validation)."""
@@ -142,6 +149,7 @@ async def test_admin_jobs_invalid_page_param_rejected(async_client):
 
 
 # ─── Pricing Endpoint Validation ─────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_pricing_calculate_endpoint_is_accessible(async_client):

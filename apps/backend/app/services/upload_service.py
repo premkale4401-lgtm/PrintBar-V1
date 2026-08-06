@@ -158,7 +158,7 @@ class UploadService:
                     storage_path=object_path,
                     storage_bucket=bucket,
                     original_filename=filename,
-                    file_size_bytes=len(pdf_bytes),   # actual stored PDF size
+                    file_size_bytes=len(pdf_bytes),  # actual stored PDF size
                     page_count=page_count,
                     sha256_checksum=sha256,
                     correlation_id=correlation_id,
@@ -188,9 +188,7 @@ class UploadService:
                 )
             raise
 
-    async def delete_upload(
-        self, session_id: str, file_id: uuid.UUID
-    ) -> bool:
+    async def delete_upload(self, session_id: str, file_id: uuid.UUID) -> bool:
         """
         Deletes a file from storage and marks the DB record as deleted.
 

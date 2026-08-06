@@ -1,4 +1,5 @@
-﻿"""PrintBar Kiosk Agent — Printer Interface Abstract Base."""
+"""PrintBar Kiosk Agent — Printer Interface Abstract Base."""
+
 from __future__ import annotations
 from abc import ABC, abstractmethod
 

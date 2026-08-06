@@ -57,9 +57,7 @@ class AuditLog(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         index=True,
     )
-    actor_type: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="SYSTEM"
-    )
+    actor_type: Mapped[str] = mapped_column(String(16), nullable=False, default="SYSTEM")
     action: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     entity_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     entity_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)

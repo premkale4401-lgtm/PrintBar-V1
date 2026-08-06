@@ -101,9 +101,7 @@ class UploadedFileRepository:
         Returns:
             UploadedFile instance or None if not found.
         """
-        result = await self._db.execute(
-            select(UploadedFile).where(UploadedFile.id == file_id)
-        )
+        result = await self._db.execute(select(UploadedFile).where(UploadedFile.id == file_id))
         return result.scalar_one_or_none()
 
     async def get_by_id_and_session(
@@ -153,9 +151,7 @@ class UploadedFileRepository:
         )
         return result.scalar_one_or_none()
 
-    async def mark_deleted(
-        self, file_id: uuid.UUID
-    ) -> None:
+    async def mark_deleted(self, file_id: uuid.UUID) -> None:
         """
         Marks a file as deleted per the privacy policy (doc 36).
 

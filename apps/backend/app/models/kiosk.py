@@ -11,7 +11,6 @@ Authentication:
     The raw API key is shown once at registration and then discarded.
 """
 
-
 from sqlalchemy import Boolean, Enum, Float, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 

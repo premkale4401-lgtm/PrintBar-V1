@@ -42,6 +42,7 @@ def get_active_provider() -> PaymentProvider:
         ValueError: If PAYMENT_PROVIDER is set to an unsupported value.
     """
     from app.core.config import get_settings
+
     settings = get_settings()
 
     # Validate credentials for real providers.
@@ -51,16 +52,19 @@ def get_active_provider() -> PaymentProvider:
 
     if provider_name == "mock":
         from app.payments.mock import mock_provider
+
         logger.info("payment_provider_active", provider="MOCK")
         return mock_provider  # type: ignore[return-value]
 
     if provider_name == "razorpay":
         from app.payments.razorpay import razorpay_provider
+
         logger.info("payment_provider_active", provider="RAZORPAY")
         return razorpay_provider  # type: ignore[return-value]
 
     if provider_name == "easebuzz":
         from app.payments.easebuzz import easebuzz_provider
+
         logger.info("payment_provider_active", provider="EASEBUZZ")
         return easebuzz_provider  # type: ignore[return-value]
 

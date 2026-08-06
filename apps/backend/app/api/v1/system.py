@@ -15,6 +15,7 @@ Returns aggregated status for:
 Used by the admin dashboard status panel and external monitoring tools.
 Admin authentication required.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -72,6 +73,7 @@ async def get_system_status(
     if settings.REDIS_URL:
         try:
             import redis.asyncio as aioredis
+
             r = await aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=2)
             await r.ping()
             await r.aclose()
@@ -85,11 +87,16 @@ async def get_system_status(
     if settings.SUPABASE_URL:
         try:
             from app.storage.service import storage_service
+
             exists = await storage_service.file_exists(
                 settings.STORAGE_BUCKET_PRINT_FILES, "_health_check_probe"
             )
             # A False result is fine (file doesn't exist) — it means storage is reachable.
-            checks["storage"] = {"status": "ok", "bucket": settings.STORAGE_BUCKET_PRINT_FILES, "provider": "supabase"}
+            checks["storage"] = {
+                "status": "ok",
+                "bucket": settings.STORAGE_BUCKET_PRINT_FILES,
+                "provider": "supabase",
+            }
         except Exception:
             checks["storage"] = {"status": "error", "error": "Storage unavailable"}
     else:
@@ -146,17 +153,13 @@ async def get_system_status(
 
     # ── Overall Health ────────────────────────────────────────────────────────────
     critical_components = ["database"]
-    is_healthy = all(
-        checks.get(c, {}).get("status") == "ok"
-        for c in critical_components
-    )
+    is_healthy = all(checks.get(c, {}).get("status") == "ok" for c in critical_components)
     is_degraded = any(
-        checks.get(c, {}).get("status") != "ok"
-        for c in ["redis", "storage", "websocket"]
+        checks.get(c, {}).get("status") != "ok" for c in ["redis", "storage", "websocket"]
     )
 
-    overall = "healthy" if is_healthy and not is_degraded else (
-        "degraded" if is_healthy else "unhealthy"
+    overall = (
+        "healthy" if is_healthy and not is_degraded else ("degraded" if is_healthy else "unhealthy")
     )
 
     return JSONResponse(

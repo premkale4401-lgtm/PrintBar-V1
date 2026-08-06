@@ -11,6 +11,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.admin import router as admin_router
@@ -30,6 +33,7 @@ from app.api.v1.system import router as system_router
 from app.api.v1.upload import router as upload_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
+from app.core.rate_limit import limiter
 from app.database.session import engine
 from app.exceptions.base import PrintBarError
 from app.exceptions.handlers import (
@@ -41,10 +45,6 @@ from app.exceptions.handlers import (
 from app.middleware.logging_middleware import LoggingMiddleware
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
-from app.core.rate_limit import limiter
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -102,12 +102,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 raise RuntimeError("No alembic_version found.")
     except Exception as e:
         log.error("migrations_missing", error=str(e))
-        raise RuntimeError("Startup failed: Database migrations are not applied. Run 'alembic upgrade head'.") from e
+        raise RuntimeError(
+            "Startup failed: Database migrations are not applied. Run 'alembic upgrade head'."
+        ) from e
     log.info("database_migrations_verified")
 
     # ─── Redis Validation ─────────────────────────────────────────────────────
     if settings.REDIS_URL:
         import redis.asyncio as aioredis
+
         try:
             redis_client = aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=2)  # type: ignore[no-untyped-call]
             await redis_client.ping()
@@ -121,6 +124,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Start background workers.
     from app.workers.background import start_all_workers, stop_all_workers
+
     await start_all_workers()
 
     log.info("application_ready", name=settings.APP_NAME)
@@ -150,14 +154,16 @@ def create_application() -> FastAPI:
         redoc_url="/redoc" if not settings.is_production else None,
         lifespan=lifespan,
     )
-    
+
     app.state.limiter = limiter
 
     # ─── Middleware (last registered = outermost) ──────────────────────────────
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins_list,
-        allow_origin_regex=r"http://(localhost|127\.0\.0\.1|10\..*|192\.168\..*|172\..*):[0-9]+" if settings.is_development else None,
+        allow_origin_regex=r"http://(localhost|127\.0\.0\.1|10\..*|192\.168\..*|172\..*):[0-9]+"
+        if settings.is_development
+        else None,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
@@ -200,18 +206,20 @@ def create_application() -> FastAPI:
     # Never active when a real payment provider is configured in production.
     if settings.ENVIRONMENT == "development" or settings.is_mock_payment:
         app.include_router(dev_payment_router, prefix=settings.API_V1_PREFIX)
-        
+
     # ─── Metrics ───────────────────────────────────────────────────────────────
     if settings.ENABLE_METRICS:
         from prometheus_client import make_asgi_app
+
         metrics_app = make_asgi_app()
         app.mount("/metrics", metrics_app)
 
     # ─── Local Storage Fallback ────────────────────────────────────────────────
     if not settings.SUPABASE_URL:
-        from fastapi.staticfiles import StaticFiles
         import os
-        
+
+        from fastapi.staticfiles import StaticFiles
+
         # Ensure the local storage directory exists
         os.makedirs("data/storage", exist_ok=True)
         app.mount("/local-storage", StaticFiles(directory="data/storage"), name="local_storage")

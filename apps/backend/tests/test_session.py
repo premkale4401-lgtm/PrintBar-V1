@@ -81,9 +81,10 @@ async def test_session_token_can_access_uploads_endpoint(async_client) -> None:
         headers={"Authorization": f"Bearer {token}"},
     )
     # 422 means we authenticated successfully but the request body is invalid.
-    assert response.status_code in (422, 400), (
-        f"Expected 422 (auth OK, missing file) but got {response.status_code}"
-    )
+    assert response.status_code in (
+        422,
+        400,
+    ), f"Expected 422 (auth OK, missing file) but got {response.status_code}"
 
 
 @pytest.mark.asyncio

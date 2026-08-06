@@ -42,9 +42,9 @@ from app.exceptions.base import (
     FileTooLargeError,
     InvalidPDFError,
     PasswordProtectedPDFError,
+    SpoofedExtensionError,
     TooManyPagesError,
     UnsupportedFileTypeError,
-    SpoofedExtensionError,
     ZeroPagesError,
 )
 
@@ -220,6 +220,7 @@ class PDFValidator:
         """Step 5: File must be parseable by pypdf."""
         try:
             from pypdf import PdfReader
+
             reader = PdfReader(io.BytesIO(file_bytes), strict=False)
             return reader
         except Exception as exc:
@@ -276,7 +277,20 @@ class PDFValidator:
             for page in reader.pages:
                 aa = page.get("/AA")
                 if aa and hasattr(aa, "get"):
-                    for key in ("/O", "/C", "/F", "/Bl", "/E", "/X", "/D", "/U", "/Fo", "/PC", "/PO", "/PV"):
+                    for key in (
+                        "/O",
+                        "/C",
+                        "/F",
+                        "/Bl",
+                        "/E",
+                        "/X",
+                        "/D",
+                        "/U",
+                        "/Fo",
+                        "/PC",
+                        "/PO",
+                        "/PV",
+                    ):
                         action = aa.get(key)
                         if action and hasattr(action, "get"):
                             if action.get("/S") in ("/JavaScript", "/JS"):
@@ -332,6 +346,7 @@ class PDFValidator:
         """
         try:
             from PIL import Image
+
             img = Image.open(io.BytesIO(file_bytes))
             img.verify()  # Raises if image is corrupted
         except ImportError:
@@ -346,7 +361,9 @@ class PDFValidator:
                 extension=extension,
                 error=str(exc),
             )
-            raise InvalidPDFError(f"The file does not appear to be a valid {extension.upper()} image.")
+            raise InvalidPDFError(
+                f"The file does not appear to be a valid {extension.upper()} image."
+            )
 
         return 1  # Images are always treated as 1-page documents
 

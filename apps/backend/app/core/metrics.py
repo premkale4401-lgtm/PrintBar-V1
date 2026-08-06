@@ -2,7 +2,7 @@
 PrintBar Backend — Prometheus Metrics
 """
 
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
 # Counters
 PRINT_JOBS_TOTAL = Counter("print_jobs_total", "Total print jobs created")
@@ -17,5 +17,5 @@ PRINTERS_OFFLINE = Gauge("printers_offline", "Number of currently offline printe
 PRINT_JOB_DURATION = Histogram(
     "print_job_duration_seconds",
     "Time taken to complete a print job",
-    buckets=[1, 5, 10, 30, 60, 120, 300, 600]
+    buckets=[1, 5, 10, 30, 60, 120, 300, 600],
 )

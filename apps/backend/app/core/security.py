@@ -71,9 +71,7 @@ class JWTHandler:
             subject=str(subject),
             role=role,
             session_id=str(session_id) if session_id is not None else str(subject),
-            expire_delta=timedelta(
-                minutes=self._settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
-            ),
+            expire_delta=timedelta(minutes=self._settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES),
             token_type="access",
             extra_claims=extra_claims or {},
         )

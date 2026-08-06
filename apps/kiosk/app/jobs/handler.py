@@ -27,6 +27,7 @@ WebSocket Protocol (Kiosk → Backend):
 WebSocket Protocol (Kiosk → Backend):
     DOWNLOAD_URL_REQUEST — request a signed download URL for a job
 """
+
 from __future__ import annotations
 import asyncio
 import logging
@@ -76,13 +77,16 @@ class JobHandler:
         if fut and not fut.done():
             logger.info(
                 "DOWNLOAD_URL_RECEIVED job_id=%s url_len=%d ts=%s",
-                job_id, len(url), _now(),
+                job_id,
+                len(url),
+                _now(),
             )
             fut.set_result(url)
         else:
             logger.warning(
                 "DOWNLOAD_URL_RECEIVED_NO_WAITER job_id=%s ts=%s",
-                job_id, _now(),
+                job_id,
+                _now(),
             )
 
     def reject_download_url(self, job_id: str, error: str) -> None:
@@ -91,7 +95,9 @@ class JobHandler:
         if fut and not fut.done():
             logger.error(
                 "DOWNLOAD_URL_ERROR job_id=%s error=%s ts=%s",
-                job_id, error, _now(),
+                job_id,
+                error,
+                _now(),
             )
             fut.set_exception(RuntimeError(f"Download URL request failed: {error}"))
 
@@ -125,14 +131,18 @@ class JobHandler:
 
         logger.info(
             "JOB_ASSIGNED_RECEIVED job_id=%s kiosk_id=%s ts=%s",
-            job_id, kiosk_id, t_received,
+            job_id,
+            kiosk_id,
+            t_received,
         )
 
         async with self._lock:
             if job_id in self._processed_job_ids:
                 logger.info(
                     "DUPLICATE_JOB_IGNORED job_id=%s kiosk_id=%s ts=%s",
-                    job_id, kiosk_id, _now(),
+                    job_id,
+                    kiosk_id,
+                    _now(),
                 )
                 return
 
@@ -162,7 +172,11 @@ class JobHandler:
                 t_dl_start = loop.time()
                 logger.info(
                     "DOWNLOAD_STARTED job_id=%s kiosk_id=%s url_len=%d ts=%s url_latency_ms=%d",
-                    job_id, kiosk_id, len(download_url), _now(), _ms(t_url_req, t_url_got),
+                    job_id,
+                    kiosk_id,
+                    len(download_url),
+                    _now(),
+                    _ms(t_url_req, t_url_got),
                 )
                 pdf_path = await self._downloader.download(
                     job_id, download_url, expected_sha256, expected_size
@@ -170,13 +184,20 @@ class JobHandler:
                 t_dl_done = loop.time()
                 logger.info(
                     "DOWNLOAD_COMPLETED job_id=%s kiosk_id=%s path=%s duration_ms=%d ts=%s",
-                    job_id, kiosk_id, pdf_path, _ms(t_dl_start, t_dl_done), _now(),
+                    job_id,
+                    kiosk_id,
+                    pdf_path,
+                    _ms(t_dl_start, t_dl_done),
+                    _now(),
                 )
 
                 if expected_sha256:
                     logger.info(
                         "SHA_VERIFIED job_id=%s kiosk_id=%s sha256=%.16s ts=%s",
-                        job_id, kiosk_id, expected_sha256, _now(),
+                        job_id,
+                        kiosk_id,
+                        expected_sha256,
+                        _now(),
                     )
 
                 # Stage 4: Report READY_TO_PRINT, then PRINTING.
@@ -190,20 +211,33 @@ class JobHandler:
                 duplex = job_data.get("duplex", False)
                 paper_size = job_data.get("paperSize", "A4")
                 orientation = job_data.get("orientation", "portrait")
-                pages_per_sheet = job_data.get("pagesPerSheet", job_data.get("pages_per_sheet", 1))
+                pages_per_sheet = job_data.get(
+                    "pagesPerSheet", job_data.get("pages_per_sheet", 1)
+                )
                 page_range = job_data.get("pageRange", job_data.get("page_range"))
-                reverse_order = job_data.get("reverseOrder", job_data.get("reverse_order", False))
+                reverse_order = job_data.get(
+                    "reverseOrder", job_data.get("reverse_order", False)
+                )
                 scale_mode = job_data.get("scaleMode", "fit")
                 margin_mode = job_data.get("marginMode", "default")
 
                 t_print_start = loop.time()
                 logger.info(
                     "PRINT_STARTED job_id=%s kiosk_id=%s copies=%s color=%s duplex=%s paper=%s nup=%s page_range=%s ts=%s",
-                    job_id, kiosk_id, copies, color_mode, duplex, paper_size, pages_per_sheet, page_range, _now(),
+                    job_id,
+                    kiosk_id,
+                    copies,
+                    color_mode,
+                    duplex,
+                    paper_size,
+                    pages_per_sheet,
+                    page_range,
+                    _now(),
                 )
 
                 # Stage 4.5: Run PDF Transformation Pipeline
                 from app.jobs.transformer import pdf_transformer
+
                 transformed_pdf_path = pdf_path + ".transformed.pdf"
                 try:
                     t_trans_start = loop.time()
@@ -222,10 +256,17 @@ class JobHandler:
                     t_trans_done = loop.time()
                     logger.info(
                         "PDF_TRANSFORMED job_id=%s duration_ms=%d path=%s ts=%s",
-                        job_id, _ms(t_trans_start, t_trans_done), pdf_to_print, _now(),
+                        job_id,
+                        _ms(t_trans_start, t_trans_done),
+                        pdf_to_print,
+                        _now(),
                     )
                 except Exception as exc:
-                    logger.error("PDF_TRANSFORMATION_FAILED job_id=%s error=%s fallback_to_raw=True", job_id, str(exc))
+                    logger.error(
+                        "PDF_TRANSFORMATION_FAILED job_id=%s error=%s fallback_to_raw=True",
+                        job_id,
+                        str(exc),
+                    )
                     pdf_to_print = pdf_path
                     transformed_pdf_path = None
 
@@ -241,7 +282,11 @@ class JobHandler:
                 t_cups_submitted = loop.time()
                 logger.info(
                     "CUPS_JOB_CREATED job_id=%s kiosk_id=%s cups_job_id=%s submit_ms=%d ts=%s",
-                    job_id, kiosk_id, cups_job_id, _ms(t_print_start, t_cups_submitted), _now(),
+                    job_id,
+                    kiosk_id,
+                    cups_job_id,
+                    _ms(t_print_start, t_cups_submitted),
+                    _now(),
                 )
 
                 # Stage 6: Wait for CUPS to finish.
@@ -261,63 +306,94 @@ class JobHandler:
                     logger.info(
                         "PRINT_COMPLETED job_id=%s kiosk_id=%s cups_job_id=%s pages=%s "
                         "print_ms=%d total_ms=%d ts=%s",
-                        job_id, kiosk_id, cups_job_id, pages,
-                        _ms(t_cups_submitted, t_print_done), total_ms, _now(),
+                        job_id,
+                        kiosk_id,
+                        cups_job_id,
+                        pages,
+                        _ms(t_cups_submitted, t_print_done),
+                        total_ms,
+                        _now(),
                     )
                     # Stage 7: Notify backend of completion.
                     await self._report_completed(job_id)
                     logger.info(
                         "JOB_COMPLETED_SENT job_id=%s kiosk_id=%s ts=%s",
-                        job_id, kiosk_id, _now(),
+                        job_id,
+                        kiosk_id,
+                        _now(),
                     )
                 else:
                     logger.error(
                         "PRINT_FAILED job_id=%s kiosk_id=%s cups_job_id=%s pages=%s "
                         "print_ms=%d total_ms=%d ts=%s",
-                        job_id, kiosk_id, cups_job_id, pages,
-                        _ms(t_cups_submitted, t_print_done), total_ms, _now(),
+                        job_id,
+                        kiosk_id,
+                        cups_job_id,
+                        pages,
+                        _ms(t_cups_submitted, t_print_done),
+                        total_ms,
+                        _now(),
                     )
                     await self._report_failed(job_id, "CUPS_JOB_INCOMPLETE")
                     logger.info(
                         "JOB_FAILED_SENT job_id=%s kiosk_id=%s ts=%s",
-                        job_id, kiosk_id, _now(),
+                        job_id,
+                        kiosk_id,
+                        _now(),
                     )
 
             except Exception as exc:
                 t_err = loop.time()
                 logger.error(
                     "JOB_HANDLER_ERROR job_id=%s kiosk_id=%s error=%s total_ms=%d ts=%s",
-                    job_id, kiosk_id, str(exc), _ms(t0, t_err), _now(),
+                    job_id,
+                    kiosk_id,
+                    str(exc),
+                    _ms(t0, t_err),
+                    _now(),
                 )
                 await self._report_failed(job_id, str(exc)[:200])
             finally:
                 if pdf_path:
                     try:
                         await self._downloader.async_cleanup(pdf_path)
-                        if 'transformed_pdf_path' in locals() and transformed_pdf_path and os.path.exists(transformed_pdf_path):
+                        if (
+                            "transformed_pdf_path" in locals()
+                            and transformed_pdf_path
+                            and os.path.exists(transformed_pdf_path)
+                        ):
                             os.remove(transformed_pdf_path)
                         logger.info(
                             "TEMP_FILE_REMOVED job_id=%s kiosk_id=%s path=%s ts=%s",
-                            job_id, kiosk_id, pdf_path, _now(),
+                            job_id,
+                            kiosk_id,
+                            pdf_path,
+                            _now(),
                         )
                     except Exception as exc:
                         logger.warning(
                             "TEMP_FILE_REMOVE_FAILED job_id=%s error=%s ts=%s",
-                            job_id, str(exc), _now(),
+                            job_id,
+                            str(exc),
+                            _now(),
                         )
                 self._active_job_id = None
                 self._set_printing(False)
                 logger.info(
                     "JOB_FINISHED job_id=%s kiosk_id=%s total_ms=%d ts=%s",
-                    job_id, kiosk_id,
-                    _ms(t0, asyncio.get_running_loop().time()), _now(),
+                    job_id,
+                    kiosk_id,
+                    _ms(t0, asyncio.get_running_loop().time()),
+                    _now(),
                 )
 
     async def handle_cancel(self, job_id: str) -> None:
         """Cancels an in-progress job."""
         logger.info(
             "JOB_CANCEL_REQUESTED job_id=%s kiosk_id=%s ts=%s",
-            job_id, self._settings.kiosk_id, _now(),
+            job_id,
+            self._settings.kiosk_id,
+            _now(),
         )
         # TODO: Cancel CUPS job if cups_job_id is known.
 
@@ -336,42 +412,60 @@ class JobHandler:
         self._pending_download_futures[job_id] = future
 
         try:
-            await self._ws_send({
-                "type": "DOWNLOAD_URL_REQUEST",
-                "data": {"jobId": job_id},
-            })
+            await self._ws_send(
+                {
+                    "type": "DOWNLOAD_URL_REQUEST",
+                    "data": {"jobId": job_id},
+                }
+            )
             logger.info(
                 "DOWNLOAD_URL_REQUEST_SENT job_id=%s kiosk_id=%s ts=%s",
-                job_id, self._settings.kiosk_id, _now(),
+                job_id,
+                self._settings.kiosk_id,
+                _now(),
             )
             url = await asyncio.wait_for(future, timeout=30.0)
             logger.info(
                 "DOWNLOAD_URL_RESOLVED job_id=%s kiosk_id=%s ts=%s",
-                job_id, self._settings.kiosk_id, _now(),
+                job_id,
+                self._settings.kiosk_id,
+                _now(),
             )
             return url
         finally:
             self._pending_download_futures.pop(job_id, None)
 
-    async def _report_status(self, job_id: str, status: str, error: str | None = None) -> None:
+    async def _report_status(
+        self, job_id: str, status: str, error: str | None = None
+    ) -> None:
         """
         Reports an intermediate job status to the backend via WebSocket.
 
         Uses type "JOB_STATUS" — the canonical protocol type expected by the backend.
         """
-        payload: dict = {"type": "JOB_STATUS", "data": {"jobId": job_id, "status": status}}
+        payload: dict = {
+            "type": "JOB_STATUS",
+            "data": {"jobId": job_id, "status": status},
+        }
         if error:
             payload["data"]["error"] = error
         try:
             await self._ws_send(payload)
             logger.info(
                 "JOB_STATUS_SENT job_id=%s kiosk_id=%s status=%s ts=%s",
-                job_id, self._settings.kiosk_id, status, _now(),
+                job_id,
+                self._settings.kiosk_id,
+                status,
+                _now(),
             )
         except Exception as exc:
             logger.error(
                 "JOB_STATUS_SEND_FAILED job_id=%s kiosk_id=%s status=%s error=%s ts=%s",
-                job_id, self._settings.kiosk_id, status, str(exc), _now(),
+                job_id,
+                self._settings.kiosk_id,
+                status,
+                str(exc),
+                _now(),
             )
 
     async def _report_completed(self, job_id: str) -> None:
@@ -388,7 +482,10 @@ class JobHandler:
         except Exception as exc:
             logger.error(
                 "JOB_COMPLETED_SEND_FAILED job_id=%s kiosk_id=%s error=%s ts=%s",
-                job_id, self._settings.kiosk_id, str(exc), _now(),
+                job_id,
+                self._settings.kiosk_id,
+                str(exc),
+                _now(),
             )
 
     async def _report_failed(self, job_id: str, reason: str) -> None:
@@ -400,13 +497,22 @@ class JobHandler:
         - Prometheus failure counter incremented
         """
         try:
-            await self._ws_send({"type": "JOB_FAILED", "data": {"jobId": job_id, "reason": reason}})
+            await self._ws_send(
+                {"type": "JOB_FAILED", "data": {"jobId": job_id, "reason": reason}}
+            )
             logger.info(
                 "JOB_FAILED_SENT job_id=%s kiosk_id=%s reason=%s ts=%s",
-                job_id, self._settings.kiosk_id, reason, _now(),
+                job_id,
+                self._settings.kiosk_id,
+                reason,
+                _now(),
             )
         except Exception as exc:
             logger.error(
                 "JOB_FAILED_SEND_FAILED job_id=%s kiosk_id=%s reason=%s error=%s ts=%s",
-                job_id, self._settings.kiosk_id, reason, str(exc), _now(),
+                job_id,
+                self._settings.kiosk_id,
+                reason,
+                str(exc),
+                _now(),
             )

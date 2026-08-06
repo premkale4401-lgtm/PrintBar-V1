@@ -1,17 +1,20 @@
 """
 Tests for kiosk agent job downloader.
 """
+
 from __future__ import annotations
 import hashlib
 import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
 
 def make_settings(tmp_path):
     from app.config.settings import KioskSettings
+
     return KioskSettings(
         kiosk_id="test-kiosk",
         api_key="test-key",
@@ -50,7 +53,9 @@ async def test_download_success(tmp_path):
     mock_client_cm.__aexit__ = AsyncMock(return_value=False)
 
     with patch("httpx.AsyncClient", return_value=mock_client_cm):
-        path = await downloader.download("job-001", "https://example.com/file.pdf", sha256)
+        path = await downloader.download(
+            "job-001", "https://example.com/file.pdf", sha256
+        )
 
     assert os.path.exists(path)
     assert path.endswith("job-001.pdf")
@@ -85,4 +90,6 @@ async def test_download_sha256_mismatch_raises(tmp_path):
 
     with patch("httpx.AsyncClient", return_value=mock_client_cm):
         with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
-            await downloader.download("job-002", "https://example.com/file.pdf", wrong_sha)
+            await downloader.download(
+                "job-002", "https://example.com/file.pdf", wrong_sha
+            )

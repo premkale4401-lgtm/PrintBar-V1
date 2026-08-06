@@ -7,15 +7,17 @@ Tests for the StorageService class including:
     - Retry logic behavior (mocked network)
     - Error handling
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.storage.service import SupabaseStorageService, StorageError
+from app.storage.service import SupabaseStorageService
 
 # ─── Static Method Tests ──────────────────────────────────────────────────────
+
 
 def test_compute_sha256_returns_hex_string():
     """SHA-256 of known bytes must produce a 64-char hex string."""
@@ -55,6 +57,7 @@ def test_build_object_path_truncates_session_id():
 
 
 # ─── Upload Retry Logic Tests ─────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_upload_file_success_first_attempt():
@@ -106,6 +109,7 @@ async def test_upload_file_raises_on_permanent_4xx():
 
 # ─── Signed URL Tests ─────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_create_signed_url_raises_when_url_missing():
     """create_signed_url must raise StorageError when response has no signedURL field."""
@@ -129,13 +133,16 @@ async def test_create_signed_url_raises_when_url_missing():
                 object_path="2026/08/test/file.pdf",
             )
 
+
 @pytest.mark.asyncio
 @patch("app.storage.service.settings.SUPABASE_URL", "https://supabase.example.com")
 async def test_create_signed_url_prepends_base_url_for_relative_path():
     """create_signed_url must prepend SUPABASE_URL to relative signed URLs."""
     mock_response = MagicMock()
     mock_response.status_code = 200
-    mock_response.json = MagicMock(return_value={"signedURL": "/storage/v1/object/sign/bucket/path?token=abc"})
+    mock_response.json = MagicMock(
+        return_value={"signedURL": "/storage/v1/object/sign/bucket/path?token=abc"}
+    )
 
     service = SupabaseStorageService()
     with patch("httpx.AsyncClient") as mock_client_class:
@@ -155,6 +162,7 @@ async def test_create_signed_url_prepends_base_url_for_relative_path():
 
 
 # ─── Delete Tests ─────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_delete_file_returns_false_on_404():

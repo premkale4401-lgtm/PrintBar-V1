@@ -1,6 +1,7 @@
 """
 Tests for payment webhook handling.
 """
+
 from __future__ import annotations
 
 import json

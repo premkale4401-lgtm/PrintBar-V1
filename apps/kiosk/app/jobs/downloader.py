@@ -9,6 +9,7 @@ Performance optimizations:
 - PDF header is extracted from the first chunk of the stream.
 - Chunk size is 128KB for faster downloads on high-bandwidth links.
 """
+
 from __future__ import annotations
 import hashlib
 import logging
@@ -61,7 +62,9 @@ class JobDownloader:
 
         async def _download() -> tuple[str, int]:
             try:
-                async with httpx.AsyncClient(timeout=self._settings.download_timeout_sec) as client:
+                async with httpx.AsyncClient(
+                    timeout=self._settings.download_timeout_sec
+                ) as client:
                     async with client.stream("GET", url) as resp:
                         resp.raise_for_status()
                         sha256 = hashlib.sha256()
@@ -70,7 +73,9 @@ class JobDownloader:
 
                         try:
                             with open(dest_path, "wb") as f:
-                                async for chunk in resp.aiter_bytes(chunk_size=_CHUNK_SIZE):
+                                async for chunk in resp.aiter_bytes(
+                                    chunk_size=_CHUNK_SIZE
+                                ):
                                     # Validate PDF header from the very first chunk
                                     # without a separate file open — zero extra I/O.
                                     if first_chunk:
@@ -95,12 +100,16 @@ class JobDownloader:
                         except Exception as exc:
                             if os.path.exists(dest_path):
                                 os.remove(dest_path)
-                            raise RuntimeError(f"Download interrupted for job {job_id}: {exc}") from exc
+                            raise RuntimeError(
+                                f"Download interrupted for job {job_id}: {exc}"
+                            ) from exc
 
                         if downloaded_size < 5:
                             if os.path.exists(dest_path):
                                 os.remove(dest_path)
-                            raise ValueError(f"File too small to be a valid PDF (size={downloaded_size}).")
+                            raise ValueError(
+                                f"File too small to be a valid PDF (size={downloaded_size})."
+                            )
 
                         return sha256.hexdigest(), downloaded_size
 
@@ -146,12 +155,15 @@ class JobDownloader:
 
     async def async_cleanup(self, path: str) -> None:
         """Asynchronously deletes the PDF after printing with retry backoff."""
+
         async def _do_cleanup() -> None:
             if os.path.exists(path):
                 os.remove(path)
                 logger.info("job_pdf_deleted", path=path)
 
         try:
-            await retry_with_backoff(_do_cleanup, max_attempts=3, label=f"cleanup_{path}")
+            await retry_with_backoff(
+                _do_cleanup, max_attempts=3, label=f"cleanup_{path}"
+            )
         except Exception as exc:
             logger.warning("job_pdf_delete_error", path=path, error=str(exc))

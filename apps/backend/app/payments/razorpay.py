@@ -406,9 +406,7 @@ class RazorpayProvider:
                 payment_count = data.get("count", len(items))
 
                 # Find the captured payment if any.
-                captured = next(
-                    (p for p in items if p.get("status") == "captured"), None
-                )
+                captured = next((p for p in items if p.get("status") == "captured"), None)
                 is_paid = captured is not None
                 amount_paid_paise = captured.get("amount", 0) if captured else 0
 

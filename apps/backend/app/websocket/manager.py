@@ -22,6 +22,7 @@ Message protocol (JSON):
         {"type": "JOB_FAILED", "data": {"jobId": "...", "reason": "..."}}
         {"type": "PONG", "data": {}}
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -54,11 +55,13 @@ class KioskConnection:
             True if sent successfully, False if connection is broken.
         """
         try:
-            payload = json.dumps({
-                "type": message_type,
-                "data": data,
-                "timestamp": datetime.now(tz=UTC).isoformat(),
-            })
+            payload = json.dumps(
+                {
+                    "type": message_type,
+                    "data": data,
+                    "timestamp": datetime.now(tz=UTC).isoformat(),
+                }
+            )
             await self.websocket.send_text(payload)
             return True
         except Exception as exc:
@@ -112,9 +115,7 @@ class WebSocketManager:
 
         logger.info("ws_kiosk_disconnected", kiosk_id=kiosk_id, total=len(self._connections))
 
-    async def send_to_kiosk(
-        self, kiosk_id: str, message_type: str, data: dict
-    ) -> bool:
+    async def send_to_kiosk(self, kiosk_id: str, message_type: str, data: dict) -> bool:
         """
         Sends a message to a specific kiosk.
 

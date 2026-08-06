@@ -12,6 +12,7 @@ POST /api/v1/admin/pricing                — Create new pricing rule (deactivat
 GET  /api/v1/admin/audit-logs             — View audit log
 GET  /api/v1/admin/users                  — List platform users (admin only)
 """
+
 from __future__ import annotations
 
 import uuid
@@ -42,10 +43,14 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 
 # ─── Request Schemas ──────────────────────────────────────────────────────────
 
+
 class CreateKioskRequest(BaseModel):
     """Request body for registering a new kiosk."""
+
     name: str = Field(..., min_length=1, max_length=100, description="Human-readable kiosk name.")
-    location: str = Field(..., min_length=1, max_length=200, description="Physical location description.")
+    location: str = Field(
+        ..., min_length=1, max_length=200, description="Physical location description."
+    )
     city: str = Field(default="", max_length=100, description="City where the kiosk is deployed.")
     notes: str | None = Field(default=None, max_length=500, description="Optional operator notes.")
     latitude: float | None = Field(default=None, description="GPS latitude.")
@@ -54,8 +59,13 @@ class CreateKioskRequest(BaseModel):
 
 class CreatePricingRuleRequest(BaseModel):
     """Request body for creating a new pricing rule."""
-    name: str = Field(..., min_length=1, max_length=100, description="Rule name (e.g. 'Standard 2026').")
-    bwPriceInr: str = Field(..., description="Black & white price per page in INR (Decimal string).")
+
+    name: str = Field(
+        ..., min_length=1, max_length=100, description="Rule name (e.g. 'Standard 2026')."
+    )
+    bwPriceInr: str = Field(
+        ..., description="Black & white price per page in INR (Decimal string)."
+    )
     colorPriceInr: str = Field(..., description="Color price per page in INR (Decimal string).")
     a3Multiplier: str = Field(default="1.75", description="A3 size price multiplier.")
     legalMultiplier: str = Field(default="1.25", description="Legal size price multiplier.")
@@ -65,6 +75,7 @@ class CreatePricingRuleRequest(BaseModel):
 
 
 # ─── Dashboard ────────────────────────────────────────────────────────────────
+
 
 @router.get("/dashboard", summary="Admin dashboard statistics")
 async def get_dashboard(
@@ -153,6 +164,7 @@ async def get_dashboard(
 
 # ─── Jobs ─────────────────────────────────────────────────────────────────────
 
+
 @router.get("/jobs", summary="List print jobs")
 async def list_jobs(
     page: int = Query(default=1, ge=1),
@@ -213,18 +225,19 @@ async def get_job_timeline(
 ) -> dict:
     """Returns the audit log timeline for a specific print job."""
     import json
-    
+
     # Check if job exists
     job = await db.execute(select(PrintJob).where(PrintJob.id == job_id))
     if not job.scalar_one_or_none():
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail={"code": "JOB_001", "message": "Job not found."})
+
+        raise HTTPException(
+            status_code=404, detail={"code": "JOB_001", "message": "Job not found."}
+        )
 
     # Fetch audit logs related to this job
     result = await db.execute(
-        select(AuditLog)
-        .where(AuditLog.print_job_id == job_id)
-        .order_by(AuditLog.created_at.asc())
+        select(AuditLog).where(AuditLog.print_job_id == job_id).order_by(AuditLog.created_at.asc())
     )
     logs = result.scalars().all()
 
@@ -239,11 +252,12 @@ async def get_job_timeline(
                 "createdAt": log.created_at.isoformat() if log.created_at else None,
             }
             for log in logs
-        ]
+        ],
     }
 
 
 # ─── Kiosks ───────────────────────────────────────────────────────────────────
+
 
 @router.get("/kiosks", summary="List all kiosks")
 async def list_kiosks(
@@ -288,7 +302,10 @@ async def get_kiosk_detail(
 
     if not kiosk:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail={"code": "KIOSK_001", "message": "Kiosk not found."})
+
+        raise HTTPException(
+            status_code=404, detail={"code": "KIOSK_001", "message": "Kiosk not found."}
+        )
 
     # Recent heartbeat logs (last 20).
     heartbeat_result = await db.execute(
@@ -314,9 +331,8 @@ async def get_kiosk_detail(
         select(func.count(PrintJob.id)).where(
             PrintJob.kiosk_id == kiosk_id,
             PrintJob.status == "COMPLETED",
-            PrintJob.completed_at >= datetime.now(tz=UTC).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            ).isoformat(),
+            PrintJob.completed_at
+            >= datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
         )
     )
     jobs_today = jobs_today_result.scalar() or 0
@@ -419,15 +435,14 @@ async def rotate_kiosk_key(
 
 # ─── Pricing ──────────────────────────────────────────────────────────────────
 
+
 @router.get("/pricing", summary="List pricing rules")
 async def list_pricing(
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Returns all pricing rules in reverse chronological order. Only one can be active."""
-    result = await db.execute(
-        select(PricingRule).order_by(PricingRule.created_at.desc())
-    )
+    result = await db.execute(select(PricingRule).order_by(PricingRule.created_at.desc()))
     rules = result.scalars().all()
 
     return {
@@ -501,6 +516,7 @@ async def create_pricing_rule(
 
 # ─── Audit Logs ───────────────────────────────────────────────────────────────
 
+
 @router.get("/audit-logs", summary="View audit log")
 async def get_audit_logs(
     page: int = Query(default=1, ge=1),
@@ -548,6 +564,7 @@ async def get_audit_logs(
 
 
 # ─── Users ────────────────────────────────────────────────────────────────────
+
 
 @router.get("/users", summary="List platform users")
 async def list_users(

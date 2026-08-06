@@ -1,8 +1,9 @@
-﻿"""
+"""
 PrintBar Kiosk Agent — System Health Monitor
 
 Collects CPU, RAM, disk, and temperature metrics.
 """
+
 from __future__ import annotations
 import logging
 
@@ -18,6 +19,7 @@ def get_system_metrics() -> dict:
     """
     try:
         import psutil
+
         cpu = psutil.cpu_percent(interval=0.5)
         ram = psutil.virtual_memory().percent
         disk = psutil.disk_usage("/").percent
@@ -33,8 +35,18 @@ def get_system_metrics() -> dict:
         except Exception:
             pass
 
-        return {"cpu_percent": cpu, "ram_percent": ram, "disk_percent": disk, "temperature_c": temp}
+        return {
+            "cpu_percent": cpu,
+            "ram_percent": ram,
+            "disk_percent": disk,
+            "temperature_c": temp,
+        }
 
     except ImportError:
         logger.warning("psutil not available — returning mock metrics")
-        return {"cpu_percent": 0.0, "ram_percent": 0.0, "disk_percent": 0.0, "temperature_c": None}
+        return {
+            "cpu_percent": 0.0,
+            "ram_percent": 0.0,
+            "disk_percent": 0.0,
+            "temperature_c": None,
+        }

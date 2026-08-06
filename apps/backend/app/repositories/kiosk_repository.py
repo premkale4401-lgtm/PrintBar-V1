@@ -3,6 +3,7 @@ PrintBar Backend — Kiosk Repository
 
 Data access layer for Kiosk, HeartbeatLog, and ApiKey records.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -134,9 +135,7 @@ class KioskRepository:
         if temperature_c is not None:
             values["temperature_c"] = temperature_c
 
-        await self._db.execute(
-            update(Kiosk).where(Kiosk.id == kiosk_id).values(**values)
-        )
+        await self._db.execute(update(Kiosk).where(Kiosk.id == kiosk_id).values(**values))
 
     async def set_ws_connected(self, kiosk_id: uuid.UUID, connected: bool) -> None:
         """Updates the ws_connected flag when a WebSocket is opened or closed."""
@@ -154,10 +153,20 @@ class KioskRepository:
         """Appends a HeartbeatLog entry."""
         import json
 
-        extra = {k: v for k, v in data.items()
-                 if k not in ("cpu_percent", "ram_percent", "disk_percent",
-                              "temperature_c", "printer_status", "app_version",
-                              "network_latency_ms")}
+        extra = {
+            k: v
+            for k, v in data.items()
+            if k
+            not in (
+                "cpu_percent",
+                "ram_percent",
+                "disk_percent",
+                "temperature_c",
+                "printer_status",
+                "app_version",
+                "network_latency_ms",
+            )
+        }
 
         log = HeartbeatLog(
             kiosk_id=kiosk_id,
@@ -182,6 +191,7 @@ class KioskRepository:
         """
         # Revoke existing active keys.
         from app.models.api_key import ApiKey as ApiKeyModel
+
         now = datetime.now(tz=UTC).isoformat()
 
         result = await self._db.execute(

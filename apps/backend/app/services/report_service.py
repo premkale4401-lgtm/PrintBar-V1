@@ -1,9 +1,10 @@
-﻿"""
+"""
 PrintBar Backend — Report Service
 
 Aggregated analytics and reporting queries.
 Used by the admin dashboard and analytics endpoints.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -122,10 +123,12 @@ class ReportService:
             )
             job_count = jobs_result.scalar() or 0
 
-            results.append({
-                "date": day_start.strftime("%Y-%m-%d"),
-                "revenueInr": round(revenue, 2),
-                "jobCount": job_count,
-            })
+            results.append(
+                {
+                    "date": day_start.strftime("%Y-%m-%d"),
+                    "revenueInr": round(revenue, 2),
+                    "jobCount": job_count,
+                }
+            )
 
         return results

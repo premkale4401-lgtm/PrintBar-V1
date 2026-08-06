@@ -25,12 +25,12 @@ from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.constants import (
     COLOR_MODE_COLOR,
     PAPER_SIZE_A3,
     PAPER_SIZE_LEGAL,
 )
-from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.models.pricing_rule import PricingRule
 
@@ -120,9 +120,11 @@ class PricingService:
         rule = result.scalar_one_or_none()
         if rule is None:
             import sys
+
             settings = get_settings()
             if settings.is_development and "pytest" not in sys.modules:
                 from datetime import UTC, datetime
+
                 rule = PricingRule(
                     name="Default Development Pricing",
                     bw_price_inr=Decimal("2.00"),
@@ -140,9 +142,7 @@ class PricingService:
                 logger.info("auto_seeded_development_pricing_rule")
                 return rule
             logger.error("no_active_pricing_rule_found")
-            raise RuntimeError(
-                "No active pricing rule configured. Run the seed script."
-            )
+            raise RuntimeError("No active pricing rule configured. Run the seed script.")
         return rule
 
     async def calculate(
@@ -242,9 +242,9 @@ class PricingService:
         else:
             paper_multiplier = Decimal("1.00")
 
-        effective_price_per_sheet = (
-            base_price_per_sheet * paper_multiplier
-        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        effective_price_per_sheet = (base_price_per_sheet * paper_multiplier).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
 
         # Sheet count.
         sheets_per_copy = math.ceil(pages_selected / pages_per_sheet)

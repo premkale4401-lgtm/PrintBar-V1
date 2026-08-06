@@ -1,9 +1,10 @@
-﻿"""
+"""
 PrintBar Backend — Heartbeat Log Repository
 
 Data access for HeartbeatLog records.
 Auto-cleanup removes entries older than 30 days.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -16,6 +17,7 @@ from app.core.logging import get_logger
 from app.models.heartbeat_log import HeartbeatLog
 
 logger = get_logger(__name__)
+
 
 class HeartbeatLogRepository:
     """Repository for HeartbeatLog records."""

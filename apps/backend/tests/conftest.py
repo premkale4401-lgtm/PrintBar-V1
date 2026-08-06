@@ -6,6 +6,7 @@ Provides shared fixtures for all tests:
     - db_session:   AsyncSession for direct DB access in tests
     - mock_settings: Override settings for specific tests
 """
+
 from __future__ import annotations
 
 import os
@@ -38,7 +39,6 @@ _TestSessionFactory = async_sessionmaker(
 )
 
 
-
 @pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
 async def setup_test_database():
     """Session fixture: creates test DB tables once and tears down at end of session."""
@@ -66,6 +66,7 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
     DB dependency is overridden to use the test SQLite session.
     Background workers are suppressed during tests.
     """
+
     async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
 

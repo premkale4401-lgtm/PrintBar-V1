@@ -114,6 +114,7 @@ async def ready() -> JSONResponse:
     if _settings.SUPABASE_URL:
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=3.0) as client:
                 resp = await client.get(
                     f"{_settings.SUPABASE_URL}/storage/v1/bucket",

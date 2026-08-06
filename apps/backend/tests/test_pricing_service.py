@@ -8,6 +8,7 @@ Tests for the PricingService business logic:
     - to_dict() response structure
     - Service with mock DB
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -17,6 +18,7 @@ import pytest
 from app.services.pricing_service import PriceCalculation
 
 # ─── PriceCalculation Dataclass ───────────────────────────────────────────────
+
 
 def test_price_calculation_to_dict_has_required_keys():
     """to_dict() must return all keys expected by the frontend payment payload."""
@@ -67,6 +69,7 @@ def test_price_calculation_currency_is_inr():
 
 # ─── PricingService Integration Tests (real DB via conftest) ──────────────────
 
+
 @pytest.mark.asyncio
 async def test_pricing_service_bw_calculation(db_session):
     """PricingService must correctly calculate BW pricing with GST."""
@@ -102,7 +105,7 @@ async def test_pricing_service_bw_calculation(db_session):
     # 5 pages × ₹2.00 × 2 copies = ₹20.00 subtotal
     assert calc.subtotal_inr == Decimal("20.00")
     assert calc.total_inr > calc.subtotal_inr  # GST adds to total
-    assert calc.gst_inr == Decimal("3.60")     # 18% of 20.00
+    assert calc.gst_inr == Decimal("3.60")  # 18% of 20.00
     assert calc.total_inr == Decimal("23.60")
 
 
@@ -111,10 +114,11 @@ async def test_pricing_service_color_calculation(db_session):
     """PricingService must apply color pricing for COLOR mode."""
     from datetime import UTC, datetime
 
+    from sqlalchemy import update
+
     from app.models.pricing_rule import PricingRule
     from app.services.pricing_service import PricingService
 
-    from sqlalchemy import update
     await db_session.execute(update(PricingRule).values(is_active=False))
 
     rule = PricingRule(
@@ -156,9 +160,7 @@ async def test_pricing_service_no_active_rule_raises(db_session):
     from app.services.pricing_service import PricingService
 
     # Deactivate any existing rules.
-    await db_session.execute(
-        update(PricingRule).values(is_active=False)
-    )
+    await db_session.execute(update(PricingRule).values(is_active=False))
     await db_session.flush()
 
     service = PricingService(db_session)

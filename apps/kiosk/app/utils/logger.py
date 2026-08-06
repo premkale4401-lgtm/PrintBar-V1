@@ -3,6 +3,7 @@ PrintBar Kiosk Agent — Logger Setup
 
 Configures structured logging with file rotation.
 """
+
 from __future__ import annotations
 import logging
 import logging.handlers
@@ -11,17 +12,38 @@ import os
 _original_log = logging.Logger._log
 
 
-def _structured_log(self, level, msg, args, exc_info=None, extra=None, stack_info=False, stacklevel=1, **kwargs):
+def _structured_log(
+    self,
+    level,
+    msg,
+    args,
+    exc_info=None,
+    extra=None,
+    stack_info=False,
+    stacklevel=1,
+    **kwargs,
+):
     if kwargs:
         kv_pairs = " ".join(f"{k}={v}" for k, v in kwargs.items())
         msg = f"{msg} {kv_pairs}"
-    _original_log(self, level, msg, args, exc_info=exc_info, extra=extra, stack_info=stack_info, stacklevel=stacklevel)
+    _original_log(
+        self,
+        level,
+        msg,
+        args,
+        exc_info=exc_info,
+        extra=extra,
+        stack_info=stack_info,
+        stacklevel=stacklevel,
+    )
 
 
 logging.Logger._log = _structured_log  # type: ignore[assignment]
 
 
-def setup_logger(log_dir: str, max_bytes: int = 10_485_760, backup_count: int = 10) -> None:
+def setup_logger(
+    log_dir: str, max_bytes: int = 10_485_760, backup_count: int = 10
+) -> None:
     """Configures the root logger with rotating file + console handlers."""
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "kiosk.log")

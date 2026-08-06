@@ -16,7 +16,7 @@ Security requirements (doc 09):
 Easebuzz HMAC-SHA512 signature:
     hash = SHA512(key|txnid|amount|productinfo|firstname|email|
                   udf1|udf2|udf3|udf4|udf5||||||salt)
-    
+
     Webhook verification reversal:
     reverse_hash = SHA512(salt|status||udf5|udf4|udf3|udf2|udf1|
                           email|firstname|productinfo|amount|txnid|key)
@@ -122,9 +122,7 @@ class EasebuzzGateway:
             f"{payload.get('amount', '')}|{payload.get('txnid', '')}|{self._key}"
         )
 
-        computed_hash = hashlib.sha512(
-            reverse_hash_string.encode("utf-8")
-        ).hexdigest()
+        computed_hash = hashlib.sha512(reverse_hash_string.encode("utf-8")).hexdigest()
 
         # Use constant-time comparison to prevent timing attacks.
         result = hmac.compare_digest(computed_hash, received_hash.lower())

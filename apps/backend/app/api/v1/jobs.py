@@ -4,6 +4,7 @@ PrintBar Backend — Print Jobs API Endpoints
 GET  /api/v1/jobs/{id}         — Get job details + status (guest session)
 GET  /api/v1/jobs/{id}/receipt — Download receipt (after COMPLETED)
 """
+
 from __future__ import annotations
 
 import uuid

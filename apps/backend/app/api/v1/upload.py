@@ -10,7 +10,6 @@ File size limits are enforced at both Nginx and FastAPI levels.
 Business logic lives in UploadService — this layer only handles HTTP concerns.
 """
 
-
 import uuid
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile, status
@@ -38,6 +37,7 @@ def get_upload_limit() -> str:
     if settings.is_development:
         return "1000/minute"
     return f"{settings.RATE_LIMIT_UPLOAD_PER_10_MINUTES}/10minutes"
+
 
 @router.post(
     "",
@@ -108,6 +108,7 @@ async def upload_file(
     )
 
     from app.core.metrics import UPLOADS_TOTAL
+
     UPLOADS_TOTAL.inc()
 
     return JSONResponse(

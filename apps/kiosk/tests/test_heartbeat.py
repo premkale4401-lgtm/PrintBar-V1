@@ -1,17 +1,20 @@
-﻿"""
+"""
 Tests for kiosk agent heartbeat sender.
 """
+
 from __future__ import annotations
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import sys
 import os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
 
 def make_settings():
     from app.config.settings import KioskSettings
+
     return KioskSettings(
         kiosk_id="test-kiosk-uuid",
         api_key="test-key",
@@ -32,7 +35,15 @@ async def test_heartbeat_sends_correct_type():
     settings = make_settings()
     sender = HeartbeatSender(settings=settings, ws_send=mock_send)
 
-    with patch("app.monitoring.health.get_system_metrics", return_value={"cpu_percent": 5.0, "ram_percent": 40.0, "disk_percent": 20.0, "temperature_c": 45.0}):
+    with patch(
+        "app.monitoring.health.get_system_metrics",
+        return_value={
+            "cpu_percent": 5.0,
+            "ram_percent": 40.0,
+            "disk_percent": 20.0,
+            "temperature_c": 45.0,
+        },
+    ):
         # Run one heartbeat iteration
         task = asyncio.create_task(sender.run_forever())
         await asyncio.sleep(1.2)
@@ -53,6 +64,7 @@ async def test_heartbeat_reflects_printing_flag():
     from app.heartbeat.sender import HeartbeatSender
 
     sent_messages = []
+
     async def mock_send(msg):
         sent_messages.append(msg)
 

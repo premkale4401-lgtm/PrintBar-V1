@@ -62,7 +62,11 @@ class PDFTransformer:
         for part in parts:
             if "-" in part:
                 subparts = part.split("-")
-                if len(subparts) == 2 and subparts[0].isdigit() and subparts[1].isdigit():
+                if (
+                    len(subparts) == 2
+                    and subparts[0].isdigit()
+                    and subparts[1].isdigit()
+                ):
                     start = int(subparts[0])
                     end = int(subparts[1])
                     if start <= end:
@@ -297,10 +301,15 @@ class PDFTransformer:
                 ]
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 if res.returncode == 0 and os.path.exists(output_path):
-                    logger.info("ghostscript_grayscale_conversion_success", output_path=output_path)
+                    logger.info(
+                        "ghostscript_grayscale_conversion_success",
+                        output_path=output_path,
+                    )
                     return output_path
                 else:
-                    logger.warning("ghostscript_grayscale_failed stderr=%s", res.stderr[:200])
+                    logger.warning(
+                        "ghostscript_grayscale_failed stderr=%s", res.stderr[:200]
+                    )
             except Exception as exc:
                 logger.warning("ghostscript_grayscale_exception error=%s", str(exc))
 

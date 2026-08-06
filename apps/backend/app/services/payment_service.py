@@ -35,7 +35,6 @@ from app.core.config import get_settings
 from app.core.constants import PAYMENT_GATEWAY_RAZORPAY
 from app.core.logging import get_logger
 from app.exceptions.base import (
-    DuplicatePaymentError,
     InvalidPaymentSignatureError,
     JobNotFoundError,
     PaymentGatewayError,
@@ -109,9 +108,7 @@ class PaymentService:
         # ── Idempotency check ──────────────────────────────────────────────────
         existing_job = await self._job_repo.get_by_idempotency_key(idem_key)
         if existing_job:
-            existing_payment = await self._payment_repo.get_by_print_job_id(
-                existing_job.id
-            )
+            existing_payment = await self._payment_repo.get_by_print_job_id(existing_job.id)
             if existing_payment and existing_payment.gateway_order_id:
                 logger.info(
                     "payment_create_order_idempotent",
@@ -127,18 +124,19 @@ class PaymentService:
                     "gatewayOrderId": existing_payment.gateway_order_id,
                     "amountPaise": amount_paise,
                     "currency": "INR",
-                    "keyId": settings.RAZORPAY_KEY_ID if not settings.is_mock_payment else "mock_key",
+                    "keyId": settings.RAZORPAY_KEY_ID
+                    if not settings.is_mock_payment
+                    else "mock_key",
                     "totalInr": str(existing_job.total_inr),
                     "isMockMode": settings.is_mock_payment,
                     "idempotent": True,
                 }
 
         # ── Validate file belongs to session ──────────────────────────────────
-        uploaded_file = await self._upload_repo.get_by_id_and_session(
-            file_id, session_id
-        )
+        uploaded_file = await self._upload_repo.get_by_id_and_session(file_id, session_id)
         if not uploaded_file or uploaded_file.is_deleted:
             from app.exceptions.base import UploadNotFoundError
+
             raise UploadNotFoundError()
 
         # ── Recalculate price (backend always owns pricing) ───────────────────
@@ -203,7 +201,9 @@ class PaymentService:
 
                 # Update gateway field — use the active provider's name.
                 from sqlalchemy import update as sql_update
+
                 from app.models.payment import Payment as PaymentModel
+
                 gateway_name = "MOCK" if settings.is_mock_payment else PAYMENT_GATEWAY_RAZORPAY
                 await self._db.execute(
                     sql_update(PaymentModel)
@@ -273,7 +273,9 @@ class PaymentService:
             PaymentOrderNotFoundError:   No payment found for this job.
             InvalidPaymentSignatureError: Signature verification failed.
         """
-        logger.info("payment_verify_callback_started", job_id=str(job_id), order_id=razorpay_order_id)
+        logger.info(
+            "payment_verify_callback_started", job_id=str(job_id), order_id=razorpay_order_id
+        )
         job: PrintJob | None = await self._job_repo.get_by_id(job_id)
         payment: Payment | None = None
 
@@ -304,9 +306,7 @@ class PaymentService:
                 job_id=str(job_id),
                 razorpay_order_id=razorpay_order_id,
             )
-            await self._payment_repo.mark_webhook_processed(
-                webhook.id, error="PAYMENT_NOT_FOUND"
-            )
+            await self._payment_repo.mark_webhook_processed(webhook.id, error="PAYMENT_NOT_FOUND")
             await self._db.commit()
             raise PaymentOrderNotFoundError()
 
@@ -318,9 +318,7 @@ class PaymentService:
                 received=razorpay_order_id,
                 job_id=str(job_id),
             )
-            await self._payment_repo.mark_webhook_processed(
-                webhook.id, error="ORDER_ID_MISMATCH"
-            )
+            await self._payment_repo.mark_webhook_processed(webhook.id, error="ORDER_ID_MISMATCH")
             await self._db.commit()
             raise InvalidPaymentSignatureError()
 
@@ -347,9 +345,7 @@ class PaymentService:
                 webhook_id=str(webhook.id),
             )
             await self._payment_repo.mark_failed(payment.id, "SIGNATURE_INVALID")
-            await self._payment_repo.mark_webhook_processed(
-                webhook.id, error="SIGNATURE_INVALID"
-            )
+            await self._payment_repo.mark_webhook_processed(webhook.id, error="SIGNATURE_INVALID")
             await self._db.commit()
             raise InvalidPaymentSignatureError()
 
@@ -373,14 +369,14 @@ class PaymentService:
                 await self._payment_repo.mark_webhook_processed(webhook.id)
 
             await self._db.commit()
-            
+
             # Receipt generation is external to the main transaction to ensure payment success is preserved even if receipt generation fails.
             try:
                 # _generate_receipt(payment.id) -> this would create a PDF and upload to Supabase
                 logger.info("mock_receipt_generated", payment_id=str(payment.id))
             except Exception as e:
                 logger.error("receipt_generation_failed", error=str(e), payment_id=str(payment.id))
-                
+
         except Exception:
             await self._db.rollback()
             raise
@@ -397,15 +393,22 @@ class PaymentService:
         try:
             from app.database.session import AsyncSessionFactory
             from app.services.job_dispatcher import JobDispatcher
+
             async with AsyncSessionFactory() as dispatch_db:
                 async with dispatch_db.begin():
                     dispatcher = JobDispatcher(dispatch_db)
                     dispatched = await dispatcher.dispatch_pending_jobs()
                     if dispatched > 0:
-                        logger.info("payment_verified_immediate_dispatch", job_id=str(job.id), dispatched=dispatched)
+                        logger.info(
+                            "payment_verified_immediate_dispatch",
+                            job_id=str(job.id),
+                            dispatched=dispatched,
+                        )
         except Exception as exc:
             # Non-fatal: background poll will catch it within 30 seconds.
-            logger.warning("payment_verified_immediate_dispatch_failed", job_id=str(job.id), error=str(exc))
+            logger.warning(
+                "payment_verified_immediate_dispatch_failed", job_id=str(job.id), error=str(exc)
+            )
 
         return {"jobId": str(job.id), "status": "QUEUED"}
 
@@ -511,6 +514,7 @@ class PaymentService:
 
         # Step 4: Store raw webhook (always, before processing).
         from decimal import Decimal as D
+
         amount_inr_from_webhook = D(webhook_result.amount_paise) / 100
 
         webhook_record = await self._payment_repo.store_webhook(
@@ -603,22 +607,29 @@ class PaymentService:
             try:
                 from app.database.session import AsyncSessionFactory
                 from app.services.job_dispatcher import JobDispatcher
+
                 async with AsyncSessionFactory() as dispatch_db:
                     async with dispatch_db.begin():
                         dispatcher = JobDispatcher(dispatch_db)
                         dispatched = await dispatcher.dispatch_pending_jobs()
                         if dispatched > 0:
-                            logger.info("webhook_immediate_dispatch", job_id=str(job.id), dispatched=dispatched)
+                            logger.info(
+                                "webhook_immediate_dispatch",
+                                job_id=str(job.id),
+                                dispatched=dispatched,
+                            )
             except Exception as exc:
-                logger.warning("webhook_immediate_dispatch_failed", job_id=str(job.id) if job else "?", error=str(exc))
+                logger.warning(
+                    "webhook_immediate_dispatch_failed",
+                    job_id=str(job.id) if job else "?",
+                    error=str(exc),
+                )
 
         return {"processed": True, "jobId": str(job.id) if job else None}
 
     # ─── Cancel Payment ───────────────────────────────────────────────────────
 
-    async def cancel_payment(
-        self, job_id: uuid.UUID, session_id: str
-    ) -> None:
+    async def cancel_payment(self, job_id: uuid.UUID, session_id: str) -> None:
         """
         Cancels a payment when the user dismisses the payment modal.
 
@@ -646,7 +657,7 @@ class PaymentService:
                     job_id=str(job_id),
                     payment_id=str(payment.id),
                 )
-            
+
             await self._db.commit()
         except Exception:
             await self._db.rollback()
@@ -674,9 +685,7 @@ class PaymentService:
         payment_status = payment.status if payment else "CREATED"
 
         # Map to frontend verification stage.
-        verification_stage = _payment_to_verification_stage(
-            payment_status, job.status
-        )
+        verification_stage = _payment_to_verification_stage(payment_status, job.status)
 
         return {
             "jobId": str(job.id),
@@ -687,9 +696,7 @@ class PaymentService:
             "paidAt": payment.paid_at if payment else None,
         }
 
-    async def poll_order_status(
-        self, job_id: uuid.UUID, session_id: str
-    ) -> dict:
+    async def poll_order_status(self, job_id: uuid.UUID, session_id: str) -> dict:
         """
         Polls the gateway for the current order payment status.
 
@@ -722,9 +729,7 @@ class PaymentService:
 
         # Poll gateway.
         try:
-            order_status = await self._provider.get_order_status(
-                payment.gateway_order_id
-            )
+            order_status = await self._provider.get_order_status(payment.gateway_order_id)
         except PaymentGatewayError:
             logger.warning(
                 "poll_order_status_gateway_error",
@@ -743,7 +748,12 @@ class PaymentService:
 def _payment_to_verification_stage(payment_status: str, job_status: str) -> str:
     """Maps payment + job status to the frontend verification stage string."""
     if payment_status == "SUCCESS" or job_status in (
-        "QUEUED", "ASSIGNED", "DOWNLOADING", "READY_TO_PRINT", "PRINTING", "COMPLETED"
+        "QUEUED",
+        "ASSIGNED",
+        "DOWNLOADING",
+        "READY_TO_PRINT",
+        "PRINTING",
+        "COMPLETED",
     ):
         return "VERIFIED"
     if payment_status == "VERIFYING":

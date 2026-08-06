@@ -17,7 +17,6 @@ import pytest
 
 from app.exceptions.base import (
     FileTooLargeError,
-    InvalidPDFError,
     SpoofedExtensionError,
     TooManyPagesError,
     UnsupportedFileTypeError,
@@ -26,12 +25,14 @@ from app.storage.validation import PDFValidator
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _make_minimal_pdf(page_count: int = 1) -> bytes:
     """
     Creates a minimal valid PDF bytes object in memory.
     Uses pypdf to generate a real, parseable PDF with the given page count.
     """
     from pypdf import PdfWriter
+
     writer = PdfWriter()
     for _ in range(page_count):
         writer.add_blank_page(width=595, height=842)  # A4 in points.
@@ -46,6 +47,7 @@ def _make_garbage_bytes(size_kb: int = 1) -> bytes:
 
 
 # ─── PDFValidator Unit Tests ───────────────────────────────────────────────────
+
 
 class TestPDFValidatorStep1Extension:
     """Step 1: File extension must be .pdf."""
@@ -108,6 +110,7 @@ class TestPDFValidatorStep4Size:
         validator = PDFValidator()
         # Monkeypatch settings to use a 1-byte limit.
         from app.core import config as config_module
+
         settings = config_module.get_settings()
         monkeypatch.setattr(settings, "MAX_FILE_SIZE_MB", 0)
 
@@ -128,6 +131,7 @@ class TestPDFValidatorPageCount:
     def test_max_pages_exceeded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         validator = PDFValidator()
         from app.core import config as config_module
+
         settings = config_module.get_settings()
         monkeypatch.setattr(settings, "MAX_PAGE_COUNT", 1)
 
@@ -137,6 +141,7 @@ class TestPDFValidatorPageCount:
 
 
 # ─── Upload API Integration Tests ─────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_upload_endpoint_rejects_no_auth(async_client) -> None:
@@ -189,6 +194,7 @@ async def test_upload_valid_pdf_succeeds(async_client) -> None:
     token = create_response.json()["data"]["accessToken"]
 
     from pypdf import PdfWriter
+
     buf = io.BytesIO()
     PdfWriter().add_blank_page(595, 842)
     writer = PdfWriter()
@@ -211,6 +217,7 @@ async def test_upload_valid_pdf_succeeds(async_client) -> None:
         import uuid
 
         from app.models.uploaded_file import UploadedFile
+
         mock_file = UploadedFile(
             session_id=token[:36],
             storage_path="print-files/2026/08/aabbccdd/test.pdf",
@@ -246,6 +253,7 @@ class TestScannedPDFValidation:
         validator = PDFValidator()
         # Create a PDF containing an image page (simulating CamScanner / scanned PDF)
         from PIL import Image
+
         img = Image.new("RGB", (600, 800), color=(200, 200, 200))
         img_buf = io.BytesIO()
         img.save(img_buf, format="PDF")
@@ -261,6 +269,7 @@ class TestImageUploadValidation:
     def test_jpg_validation_passes(self) -> None:
         validator = PDFValidator()
         from PIL import Image
+
         img = Image.new("RGB", (100, 100), color="red")
         img_buf = io.BytesIO()
         img.save(img_buf, format="JPEG")
@@ -272,6 +281,7 @@ class TestImageUploadValidation:
     def test_png_validation_passes(self) -> None:
         validator = PDFValidator()
         from PIL import Image
+
         img = Image.new("RGBA", (100, 100), color="blue")
         img_buf = io.BytesIO()
         img.save(img_buf, format="PNG")
@@ -279,4 +289,3 @@ class TestImageUploadValidation:
 
         count = validator.validate("scan.png", "image/png", png_bytes)
         assert count == 1
-

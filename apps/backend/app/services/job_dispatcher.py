@@ -19,6 +19,7 @@ Race condition protection:
     - The state machine transition from QUEUED → ASSIGNED is enforced by the DB.
     - If the WebSocket send fails, the job is reverted to QUEUED for the next cycle.
 """
+
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,10 +63,7 @@ class JobDispatcher:
 
         # Filter to kiosks that are actually WebSocket-connected.
         # A kiosk might be ONLINE in DB but WS-disconnected (stale status).
-        connected_kiosks = [
-            k for k in online_kiosks
-            if ws_manager.is_connected(str(k.id))
-        ]
+        connected_kiosks = [k for k in online_kiosks if ws_manager.is_connected(str(k.id))]
 
         if not connected_kiosks:
             logger.debug("dispatch_no_ws_connected_kiosks", queued=len(queued_jobs))
@@ -128,9 +126,7 @@ class JobDispatcher:
                 "orientation": job["orientation"],
             }
 
-            sent = await ws_manager.send_to_kiosk(
-                str(kiosk.id), "JOB_ASSIGNED", job_data
-            )
+            sent = await ws_manager.send_to_kiosk(str(kiosk.id), "JOB_ASSIGNED", job_data)
 
             if sent:
                 dispatched += 1

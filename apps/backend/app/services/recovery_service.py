@@ -15,7 +15,9 @@ actively handling the job.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.logging import get_logger
 from app.repositories.print_job_repository import PrintJobRepository
 from app.websocket.manager import ws_manager
@@ -106,7 +108,11 @@ class WorkflowRecoveryService:
 
                 # Rule 2: Assigned / Downloading / Ready to Print > 5 mins
                 #          with no active kiosk → retry or fail
-                elif status in ("ASSIGNED", "DOWNLOADING", "READY_TO_PRINT") and time_elapsed > timedelta(minutes=5):
+                elif status in (
+                    "ASSIGNED",
+                    "DOWNLOADING",
+                    "READY_TO_PRINT",
+                ) and time_elapsed > timedelta(minutes=5):
                     if retry_count >= 3:
                         logger.error(
                             "recovery_max_retries_exceeded",

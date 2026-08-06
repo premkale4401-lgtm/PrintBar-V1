@@ -1,9 +1,10 @@
-﻿"""
+"""
 PrintBar Backend — Pricing Rule Repository
 
 Data access for PricingRule records.
 Pricing history is preserved — old rules are never deleted, only deactivated.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from app.core.logging import get_logger
 from app.models.pricing_rule import PricingRule
 
 logger = get_logger(__name__)
+
 
 class PricingRuleRepository:
     """Repository for PricingRule records."""
@@ -32,9 +34,7 @@ class PricingRuleRepository:
 
     async def get_all(self) -> list[PricingRule]:
         """Returns all pricing rules (history included)."""
-        result = await self._db.execute(
-            select(PricingRule).order_by(PricingRule.created_at.desc())
-        )
+        result = await self._db.execute(select(PricingRule).order_by(PricingRule.created_at.desc()))
         return list(result.scalars().all())
 
     async def create_rule(

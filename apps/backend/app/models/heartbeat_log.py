@@ -56,9 +56,7 @@ class HeartbeatLog(Base, UUIDMixin, TimestampMixin):
     disk_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     temperature_c: Mapped[float | None] = mapped_column(Float, nullable=True)
     printer_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    active_job_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    active_job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     network_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     extra: Mapped[str | None] = mapped_column(Text, nullable=True)
 

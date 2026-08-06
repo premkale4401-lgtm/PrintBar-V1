@@ -8,6 +8,7 @@ Wires together:
     - JobHandler
     - PrinterStatusPoller
 """
+
 from __future__ import annotations
 import asyncio
 import logging
@@ -88,6 +89,7 @@ class KioskClient:
     def _cleanup_temp_dir(self) -> None:
         """Cleans stale files from the temp directory."""
         import os
+
         try:
             for filename in os.listdir(self._settings.temp_dir):
                 if filename.endswith(".pdf"):
@@ -106,7 +108,11 @@ class KioskClient:
     def _validate_printer_at_startup(self) -> None:
         """Validates CUPS printer status on startup."""
         status = self._printer.get_printer_status()
-        logger.info("printer_startup_validation", status=status, printer=self._settings.cups_printer_name)
+        logger.info(
+            "printer_startup_validation",
+            status=status,
+            printer=self._settings.cups_printer_name,
+        )
         if status == "UNKNOWN":
             logger.error("printer_missing_at_startup", status=status)
             raise RuntimeError("Default printer is missing or CUPS is inaccessible.")

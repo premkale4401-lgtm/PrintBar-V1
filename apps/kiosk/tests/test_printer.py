@@ -1,11 +1,13 @@
-﻿"""
+"""
 Tests for kiosk agent CUPS printer adapter (mocked CUPS).
 """
+
 from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock, patch
 import sys
 import os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
 
@@ -31,7 +33,10 @@ def test_get_printer_status_out_of_paper():
 
     mock_cups = MagicMock()
     mock_cups.getPrinters.return_value = {
-        "TestPrinter": {"printer-state": 5, "printer-state-reasons": ["media-empty-warning"]}
+        "TestPrinter": {
+            "printer-state": 5,
+            "printer-state-reasons": ["media-empty-warning"],
+        }
     }
 
     adapter = CupsAdapter("TestPrinter")
@@ -68,7 +73,9 @@ def test_submit_job_calls_cups(tmp_path):
 
     adapter = CupsAdapter("TestPrinter")
     with patch.object(adapter, "_get_connection", return_value=mock_cups):
-        job_id = adapter.submit_job(str(pdf_file), copies=2, color_mode="BW", duplex=False)
+        job_id = adapter.submit_job(
+            str(pdf_file), copies=2, color_mode="BW", duplex=False
+        )
 
     assert job_id == 42
     mock_cups.printFile.assert_called_once()

@@ -12,7 +12,6 @@ Privacy Policy (doc 36):
 Only non-PII metadata (page_count, file_size_bytes, mime_type) is retained permanently.
 """
 
-
 from sqlalchemy import BigInteger, Boolean, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -62,7 +61,9 @@ class UploadedFile(PrintBarBase):
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     deleted_at: Mapped[str | None] = mapped_column(String(50), nullable=True)
     expires_at: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
-    correlation_id: Mapped[str] = mapped_column(String(128), nullable=False, default="unknown", index=True)
+    correlation_id: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="unknown", index=True
+    )
 
     # Relationships
     print_jobs: Mapped[list["PrintJob"]] = relationship(  # noqa: F821

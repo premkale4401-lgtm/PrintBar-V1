@@ -134,7 +134,13 @@ class PrintJob(PrintBarBase):
         default=COLOR_MODE_BW,
     )
     paper_size: Mapped[str] = mapped_column(
-        Enum(PAPER_SIZE_A4, PAPER_SIZE_A3, PAPER_SIZE_LETTER, PAPER_SIZE_LEGAL, name="paper_size_enum"),
+        Enum(
+            PAPER_SIZE_A4,
+            PAPER_SIZE_A3,
+            PAPER_SIZE_LETTER,
+            PAPER_SIZE_LEGAL,
+            name="paper_size_enum",
+        ),
         nullable=False,
         default=PAPER_SIZE_A4,
     )

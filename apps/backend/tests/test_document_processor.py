@@ -11,12 +11,11 @@ Verifies that for every supported file type:
 No real LibreOffice or network calls are made.
 DOC/DOCX tests mock the subprocess call.
 """
+
 from __future__ import annotations
 
 import io
-import os
 import struct
-import tempfile
 import zlib
 from unittest.mock import MagicMock, patch
 
@@ -25,12 +24,13 @@ import pytest
 from app.exceptions.base import InvalidPDFError
 from app.services.document_processor import DocumentProcessor
 
-
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _make_minimal_pdf(page_count: int = 1) -> bytes:
     """Creates a minimal valid PDF in memory using pypdf."""
     from pypdf import PdfWriter
+
     writer = PdfWriter()
     for _ in range(page_count):
         writer.add_blank_page(width=595, height=842)
@@ -69,6 +69,7 @@ def _make_jpeg_bytes() -> bytes:
     # SOI + minimal JFIF app0 + quantization + SOF0 + Huffman + SOS + EOI.
     try:
         from PIL import Image
+
         img = Image.new("RGB", (1, 1), (255, 255, 255))
         buf = io.BytesIO()
         img.save(buf, format="JPEG")
@@ -82,13 +83,16 @@ def _make_docx_bytes() -> bytes:
     """Creates the minimal DOCX ZIP magic bytes (PK header)."""
     # DOCX is a ZIP file — create a minimal valid ZIP.
     import zipfile
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml",
-                   '<?xml version="1.0" encoding="UTF-8"?>'
-                   '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-                   '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-                   '</Types>')
+        z.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            "</Types>",
+        )
     return buf.getvalue()
 
 
@@ -100,6 +104,7 @@ def _make_doc_bytes() -> bytes:
 
 # ─── Tests ────────────────────────────────────────────────────────────────────
 
+
 class TestPDFPassthrough:
     """PDF files must pass through unchanged and always begin with %PDF-."""
 
@@ -110,9 +115,7 @@ class TestPDFPassthrough:
 
         result_bytes, page_count = processor._pass_through_pdf(pdf_bytes)
 
-        assert result_bytes[:5] == b"%PDF-", (
-            f"Expected %PDF- magic bytes, got {result_bytes[:8]!r}"
-        )
+        assert result_bytes[:5] == b"%PDF-", f"Expected %PDF- magic bytes, got {result_bytes[:8]!r}"
         assert result_bytes == pdf_bytes
         assert page_count == 1
 
@@ -135,9 +138,7 @@ class TestPDFPassthrough:
             "document.pdf", "application/pdf", pdf_bytes
         )
 
-        assert result_bytes[:5] == b"%PDF-", (
-            f"PDF passthrough corrupted: got {result_bytes[:8]!r}"
-        )
+        assert result_bytes[:5] == b"%PDF-", f"PDF passthrough corrupted: got {result_bytes[:8]!r}"
         assert page_count >= 1
 
 
@@ -166,16 +167,14 @@ class TestPNGConversion:
         processor = DocumentProcessor()
         png_bytes = _make_png_bytes()
 
-        result_bytes, page_count = await processor.process(
-            "photo.png", "image/png", png_bytes
-        )
+        result_bytes, page_count = await processor.process("photo.png", "image/png", png_bytes)
 
-        assert result_bytes[:5] == b"%PDF-", (
-            f"Expected PDF after PNG conversion, got {result_bytes[:8]!r}"
-        )
-        assert result_bytes[:4] != b"\x89PNG", (
-            "PNG magic bytes found in stored file — conversion failed"
-        )
+        assert (
+            result_bytes[:5] == b"%PDF-"
+        ), f"Expected PDF after PNG conversion, got {result_bytes[:8]!r}"
+        assert (
+            result_bytes[:4] != b"\x89PNG"
+        ), "PNG magic bytes found in stored file — conversion failed"
         assert page_count == 1
 
     @pytest.mark.asyncio
@@ -184,9 +183,7 @@ class TestPNGConversion:
         processor = DocumentProcessor()
         png_bytes = _make_png_bytes()
 
-        result_bytes, page_count = await processor.process(
-            "PHOTO.PNG", "image/png", png_bytes
-        )
+        result_bytes, page_count = await processor.process("PHOTO.PNG", "image/png", png_bytes)
 
         assert result_bytes[:5] == b"%PDF-"
 
@@ -211,9 +208,9 @@ class TestJPEGConversion:
 
         result_bytes, page_count = processor._image_to_pdf(jpeg_bytes, "jpg")
 
-        assert result_bytes[:5] == b"%PDF-", (
-            f"JPEG conversion produced non-PDF bytes: {result_bytes[:8]!r}"
-        )
+        assert (
+            result_bytes[:5] == b"%PDF-"
+        ), f"JPEG conversion produced non-PDF bytes: {result_bytes[:8]!r}"
         assert page_count == 1
 
     @pytest.mark.asyncio
@@ -222,16 +219,14 @@ class TestJPEGConversion:
         processor = DocumentProcessor()
         jpeg_bytes = _make_jpeg_bytes()
 
-        result_bytes, page_count = await processor.process(
-            "photo.jpg", "image/jpeg", jpeg_bytes
-        )
+        result_bytes, page_count = await processor.process("photo.jpg", "image/jpeg", jpeg_bytes)
 
-        assert result_bytes[:5] == b"%PDF-", (
-            f"Expected PDF after JPEG conversion, got {result_bytes[:8]!r}"
-        )
-        assert result_bytes[:3] != b"\xff\xd8\xff", (
-            "JPEG magic bytes found in stored file — conversion failed"
-        )
+        assert (
+            result_bytes[:5] == b"%PDF-"
+        ), f"Expected PDF after JPEG conversion, got {result_bytes[:8]!r}"
+        assert (
+            result_bytes[:3] != b"\xff\xd8\xff"
+        ), "JPEG magic bytes found in stored file — conversion failed"
         assert page_count == 1
 
     @pytest.mark.asyncio
@@ -240,9 +235,7 @@ class TestJPEGConversion:
         processor = DocumentProcessor()
         jpeg_bytes = _make_jpeg_bytes()
 
-        result_bytes, _ = await processor.process(
-            "photo.jpeg", "image/jpeg", jpeg_bytes
-        )
+        result_bytes, _ = await processor.process("photo.jpeg", "image/jpeg", jpeg_bytes)
 
         assert result_bytes[:5] == b"%PDF-"
 
@@ -290,9 +283,9 @@ class TestDOCXConversion:
 
             result_bytes, page_count = await processor._office_to_pdf(docx_bytes, "docx")
 
-        assert result_bytes[:5] == b"%PDF-", (
-            f"DOCX conversion must produce PDF bytes, got {result_bytes[:8]!r}"
-        )
+        assert (
+            result_bytes[:5] == b"%PDF-"
+        ), f"DOCX conversion must produce PDF bytes, got {result_bytes[:8]!r}"
         assert page_count >= 1
 
     @pytest.mark.asyncio
@@ -349,9 +342,9 @@ class TestDOCConversion:
 
             result_bytes, page_count = await processor._office_to_pdf(doc_bytes, "doc")
 
-        assert result_bytes[:5] == b"%PDF-", (
-            f"DOC conversion must produce PDF bytes, got {result_bytes[:8]!r}"
-        )
+        assert (
+            result_bytes[:5] == b"%PDF-"
+        ), f"DOC conversion must produce PDF bytes, got {result_bytes[:8]!r}"
         assert page_count >= 1
 
     @pytest.mark.asyncio

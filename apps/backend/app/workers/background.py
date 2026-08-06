@@ -12,6 +12,7 @@ Workers:
     6. SimulatedKioskWorker — DEV ONLY. Requires ENABLE_SIMULATED_KIOSK=true.
                               NEVER start this when a real Raspberry Pi is connected.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -25,6 +26,7 @@ logger = get_logger(__name__)
 settings = get_settings()
 
 from typing import Any
+
 _active_workers: list[asyncio.Task[Any]] = []
 
 
@@ -58,8 +60,13 @@ async def run_cleanup_worker() -> None:
                                     success = True
                                     break
                                 except Exception as e:
-                                    logger.warning("cleanup_worker_delete_retry", file_id=str(file.id), attempt=attempt, error=str(e))
-                                    await asyncio.sleep(2 ** attempt)
+                                    logger.warning(
+                                        "cleanup_worker_delete_retry",
+                                        file_id=str(file.id),
+                                        attempt=attempt,
+                                        error=str(e),
+                                    )
+                                    await asyncio.sleep(2**attempt)
 
                             if not success:
                                 logger.error("cleanup_worker_delete_failed", file_id=str(file.id))
@@ -190,13 +197,16 @@ async def run_job_dispatch_worker() -> None:
     jobs that were missed by the event-driven dispatch (e.g., during kiosk
     reconnection or server restart).
     """
-    logger.info("job_dispatch_worker_started", interval=settings.JOB_DISPATCH_WORKER_INTERVAL_SECONDS)
+    logger.info(
+        "job_dispatch_worker_started", interval=settings.JOB_DISPATCH_WORKER_INTERVAL_SECONDS
+    )
 
     while True:
         try:
             async with AsyncSessionFactory() as db:
                 async with db.begin():
                     from app.services.job_dispatcher import JobDispatcher
+
                     dispatcher = JobDispatcher(db)
                     dispatched = await dispatcher.dispatch_pending_jobs()
 
@@ -214,10 +224,13 @@ async def run_workflow_recovery_worker() -> None:
     Recovers stuck jobs due to timeouts.
     Runs every RECOVERY_WORKER_INTERVAL_SECONDS seconds.
     """
-    logger.info("workflow_recovery_worker_started", interval=settings.RECOVERY_WORKER_INTERVAL_SECONDS)
+    logger.info(
+        "workflow_recovery_worker_started", interval=settings.RECOVERY_WORKER_INTERVAL_SECONDS
+    )
     while True:
         try:
             from app.services.recovery_service import WorkflowRecoveryService
+
             async with AsyncSessionFactory() as db:
                 service = WorkflowRecoveryService(db)
                 recovered = await service.recover_stuck_jobs()
@@ -268,12 +281,12 @@ async def run_simulated_kiosk_worker() -> None:
             active_jobs: list[tuple[str, str, str | None]] = []
             async with AsyncSessionFactory() as db:
                 from app.repositories.print_job_repository import PrintJobRepository
+
                 job_repo = PrintJobRepository(db)
                 jobs = await job_repo.get_active_uncompleted_jobs()
                 # Snapshot id, status, and kiosk_id to avoid lazy-loading issues.
                 active_jobs = [
-                    (str(j.id), j.status, str(j.kiosk_id) if j.kiosk_id else None)
-                    for j in jobs
+                    (str(j.id), j.status, str(j.kiosk_id) if j.kiosk_id else None) for j in jobs
                 ]
 
             for job_id_str, current_st, assigned_kiosk_id in active_jobs:
@@ -298,12 +311,16 @@ async def run_simulated_kiosk_worker() -> None:
                     continue
 
                 import uuid
+
                 job_id = uuid.UUID(job_id_str)
-                logger.info("simulated_kiosk_processing_job", job_id=job_id_str, current_status=current_st)
+                logger.info(
+                    "simulated_kiosk_processing_job", job_id=job_id_str, current_status=current_st
+                )
 
                 async def _do_transition(to_st: str, jid: uuid.UUID = job_id) -> None:
                     async with AsyncSessionFactory() as db:
                         from app.repositories.print_job_repository import PrintJobRepository
+
                         jr = PrintJobRepository(db)
                         try:
                             await jr.transition(jid, to_st)
@@ -379,13 +396,15 @@ async def start_all_workers() -> None:
 
     Called from the FastAPI lifespan context manager.
     """
-    _active_workers.extend([
-        asyncio.create_task(run_cleanup_worker(), name="cleanup_worker"),
-        asyncio.create_task(run_heartbeat_monitor(), name="heartbeat_monitor"),
-        asyncio.create_task(run_payment_expiry_worker(), name="payment_expiry_worker"),
-        asyncio.create_task(run_job_dispatch_worker(), name="job_dispatch_worker"),
-        asyncio.create_task(run_workflow_recovery_worker(), name="workflow_recovery_worker"),
-    ])
+    _active_workers.extend(
+        [
+            asyncio.create_task(run_cleanup_worker(), name="cleanup_worker"),
+            asyncio.create_task(run_heartbeat_monitor(), name="heartbeat_monitor"),
+            asyncio.create_task(run_payment_expiry_worker(), name="payment_expiry_worker"),
+            asyncio.create_task(run_job_dispatch_worker(), name="job_dispatch_worker"),
+            asyncio.create_task(run_workflow_recovery_worker(), name="workflow_recovery_worker"),
+        ]
+    )
 
     # Simulated kiosk — only if explicitly enabled AND not in production.
     # This worker MUST NOT run alongside a real Raspberry Pi kiosk.

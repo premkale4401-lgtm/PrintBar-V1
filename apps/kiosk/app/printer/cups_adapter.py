@@ -7,6 +7,7 @@ Requires cups Python bindings: pip install pycups
 Performance: The CUPS connection is cached and reused across calls.
 A new connection is only created if the existing one becomes stale.
 """
+
 from __future__ import annotations
 import logging
 import os
@@ -38,8 +39,8 @@ class CupsAdapter:
 
     def __init__(self, printer_name: str) -> None:
         self._printer_name = printer_name
-        self._conn: Any = None          # Cached CUPS connection
-        self._conn_stale: bool = True   # Force reconnect on first use
+        self._conn: Any = None  # Cached CUPS connection
+        self._conn_stale: bool = True  # Force reconnect on first use
 
         if not self._printer_name:
             try:
@@ -64,6 +65,7 @@ class CupsAdapter:
 
         try:
             import cups
+
             self._conn = cups.Connection()
             self._conn_stale = False
             logger.debug("cups_connection_created")
@@ -100,14 +102,24 @@ class CupsAdapter:
                     return "OFFLINE"
 
                 state = printers[self._printer_name].get("printer-state", 0)
-                state_reasons = printers[self._printer_name].get("printer-state-reasons", [])
+                state_reasons = printers[self._printer_name].get(
+                    "printer-state-reasons", []
+                )
                 state_reasons_str = str(state_reasons)
 
                 if "media-empty" in state_reasons_str:
                     return "OUT_OF_PAPER"
-                if "media-jam" in state_reasons_str or "toner-empty" in state_reasons_str or "marker-supply-empty" in state_reasons_str:
+                if (
+                    "media-jam" in state_reasons_str
+                    or "toner-empty" in state_reasons_str
+                    or "marker-supply-empty" in state_reasons_str
+                ):
                     return "ERROR"
-                if "paused" in state_reasons_str or "offline" in state_reasons_str or "not-connected" in state_reasons_str:
+                if (
+                    "paused" in state_reasons_str
+                    or "offline" in state_reasons_str
+                    or "not-connected" in state_reasons_str
+                ):
                     return "OFFLINE"
 
                 if state == 3:
@@ -121,10 +133,13 @@ class CupsAdapter:
                 # Subprocess fallback (no pycups).
                 import subprocess
                 import shutil
+
                 if shutil.which("lpstat"):
                     res = subprocess.run(
                         ["lpstat", "-p", self._printer_name or "PrintBar"],
-                        capture_output=True, text=True, timeout=5,
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
                     )
                     output = res.stdout.lower()
                     if "disabled" in output or "off" in output:
@@ -162,16 +177,22 @@ class CupsAdapter:
             options = {
                 "copies": str(copies),
                 "ColorModel": "Gray" if color_mode.upper() == "BW" else "RGB",
-                "print-color-mode": "monochrome" if color_mode.upper() == "BW" else "color",
+                "print-color-mode": "monochrome"
+                if color_mode.upper() == "BW"
+                else "color",
                 "Duplex": "DuplexNoTumble" if duplex else "None",
                 "sides": "two-sided-long-edge" if duplex else "one-sided",
                 "PageSize": paper_size,
                 "media": paper_size,
-                "orientation-requested": "4" if orientation.lower() == "landscape" else "3",
+                "orientation-requested": "4"
+                if orientation.lower() == "landscape"
+                else "3",
                 "fit-to-page": "True",
             }
             try:
-                job_id = conn.printFile(self._printer_name, pdf_path, "PrintBar Job", options)
+                job_id = conn.printFile(
+                    self._printer_name, pdf_path, "PrintBar Job", options
+                )
                 logger.info(
                     "cups_job_submitted",
                     job_id=job_id,
@@ -190,14 +211,24 @@ class CupsAdapter:
             # Subprocess fallback (no pycups).
             import subprocess
             import shutil
+
             if shutil.which("lp"):
                 cmd = ["lp", "-d", self._printer_name or "PrintBar", "-n", str(copies)]
                 if color_mode.upper() == "BW":
-                    cmd.extend(["-o", "ColorModel=Gray", "-o", "print-color-mode=monochrome"])
+                    cmd.extend(
+                        ["-o", "ColorModel=Gray", "-o", "print-color-mode=monochrome"]
+                    )
                 else:
                     cmd.extend(["-o", "ColorModel=RGB", "-o", "print-color-mode=color"])
                 if duplex:
-                    cmd.extend(["-o", "sides=two-sided-long-edge", "-o", "Duplex=DuplexNoTumble"])
+                    cmd.extend(
+                        [
+                            "-o",
+                            "sides=two-sided-long-edge",
+                            "-o",
+                            "Duplex=DuplexNoTumble",
+                        ]
+                    )
                 else:
                     cmd.extend(["-o", "sides=one-sided", "-o", "Duplex=None"])
                 cmd.extend(["-o", f"media={paper_size}", "-o", "fit-to-page=true"])
@@ -205,7 +236,11 @@ class CupsAdapter:
                     cmd.extend(["-o", "orientation-requested=4"])
                 cmd.append(pdf_path)
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                logger.info("lp_cmd_submitted", stdout=res.stdout.strip(), stderr=res.stderr.strip())
+                logger.info(
+                    "lp_cmd_submitted",
+                    stdout=res.stdout.strip(),
+                    stderr=res.stderr.strip(),
+                )
                 if res.returncode != 0:
                     raise RuntimeError(f"lp command failed: {res.stderr.strip()}")
                 # Parse job ID from lp output: "request id is PrintBar-42 (1 file(s))"
@@ -274,7 +309,9 @@ class CupsAdapter:
                 err_str = str(exc)
                 if "IPP" in err_str or "not-found" in err_str.lower():
                     # Job was purged from CUPS queue — treat as completed.
-                    logger.info("cups_job_purged_from_queue_treating_as_complete", job_id=job_id)
+                    logger.info(
+                        "cups_job_purged_from_queue_treating_as_complete", job_id=job_id
+                    )
                     return True
                 logger.error("cups_poll_error", job_id=job_id, error=err_str)
                 # Reconnect on error to recover from stale connection.

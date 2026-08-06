@@ -1,9 +1,10 @@
-﻿"""
+"""
 PrintBar Backend — Kiosk Service
 
 Business logic for kiosk lifecycle management.
 All DB operations are delegated to KioskRepository.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -26,8 +27,14 @@ class KioskService:
         self._repo = KioskRepository(db)
 
     async def register_kiosk(
-        self, *, name: str, location: str, city: str,
-        notes: str | None = None, latitude: float | None = None, longitude: float | None = None,
+        self,
+        *,
+        name: str,
+        location: str,
+        city: str,
+        notes: str | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
         admin_id: str,
     ) -> tuple[Kiosk, str]:
         """
@@ -37,8 +44,12 @@ class KioskService:
             Tuple of (Kiosk record, raw API key). Raw key shown once.
         """
         kiosk, raw_key = await self._repo.create(
-            name=name, location=location, city=city,
-            notes=notes, latitude=latitude, longitude=longitude,
+            name=name,
+            location=location,
+            city=city,
+            notes=notes,
+            latitude=latitude,
+            longitude=longitude,
         )
         await self._db.commit()
         await self._db.refresh(kiosk)
@@ -80,18 +91,16 @@ class KioskService:
     async def set_maintenance_mode(self, kiosk_id: uuid.UUID, *, enabled: bool) -> None:
         """Sets or clears maintenance mode for a kiosk."""
         from sqlalchemy import update
+
         new_status = "MAINTENANCE" if enabled else "OFFLINE"
-        await self._db.execute(
-            update(Kiosk).where(Kiosk.id == kiosk_id).values(status=new_status)
-        )
+        await self._db.execute(update(Kiosk).where(Kiosk.id == kiosk_id).values(status=new_status))
         await self._db.commit()
         logger.info("kiosk_maintenance_mode_set", kiosk_id=str(kiosk_id), enabled=enabled)
 
     async def deactivate_kiosk(self, kiosk_id: uuid.UUID) -> None:
         """Soft-disables a kiosk (no new jobs will be assigned)."""
         from sqlalchemy import update
-        await self._db.execute(
-            update(Kiosk).where(Kiosk.id == kiosk_id).values(is_active=False)
-        )
+
+        await self._db.execute(update(Kiosk).where(Kiosk.id == kiosk_id).values(is_active=False))
         await self._db.commit()
         logger.info("kiosk_deactivated", kiosk_id=str(kiosk_id))

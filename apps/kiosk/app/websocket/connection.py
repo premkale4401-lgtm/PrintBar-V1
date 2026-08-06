@@ -11,6 +11,7 @@ Production settings:
 
 Every incoming and outgoing message is logged with type and timestamp.
 """
+
 from __future__ import annotations
 import asyncio
 import json
@@ -32,7 +33,9 @@ class KioskWebSocketConnection:
         await conn.run_forever()
     """
 
-    def __init__(self, url: str, token: str, on_message: Callable, kiosk_id: str) -> None:
+    def __init__(
+        self, url: str, token: str, on_message: Callable, kiosk_id: str
+    ) -> None:
         self._url = url
         self._token = token
         self._on_message = on_message
@@ -50,9 +53,9 @@ class KioskWebSocketConnection:
             try:
                 async with websockets.connect(
                     self._url,
-                    ping_interval=30,    # Send PING every 30s to keep connection alive.
-                    ping_timeout=15,     # Close if no PONG within 15s (dead connection).
-                    close_timeout=5,     # Wait up to 5s for clean close.
+                    ping_interval=30,  # Send PING every 30s to keep connection alive.
+                    ping_timeout=15,  # Close if no PONG within 15s (dead connection).
+                    close_timeout=5,  # Wait up to 5s for clean close.
                     max_size=10 * 1024 * 1024,  # 10MB max message size.
                 ) as ws:
                     self._ws = ws
@@ -60,18 +63,23 @@ class KioskWebSocketConnection:
                     delay = 1.0  # Reset backoff on successful connect.
                     logger.info(
                         "WS_CONNECTED kiosk_id=%s url=%s ts=%s",
-                        self._kiosk_id, self._url, datetime.now(tz=UTC).isoformat(),
+                        self._kiosk_id,
+                        self._url,
+                        datetime.now(tz=UTC).isoformat(),
                     )
 
                     # Send REGISTER message on connect.
-                    register_msg = json.dumps({
-                        "type": "REGISTER",
-                        "data": {"kioskId": self._kiosk_id},
-                    })
+                    register_msg = json.dumps(
+                        {
+                            "type": "REGISTER",
+                            "data": {"kioskId": self._kiosk_id},
+                        }
+                    )
                     await ws.send(register_msg)
                     logger.info(
                         "WS_SENT type=REGISTER kiosk_id=%s ts=%s",
-                        self._kiosk_id, datetime.now(tz=UTC).isoformat(),
+                        self._kiosk_id,
+                        datetime.now(tz=UTC).isoformat(),
                     )
 
                     async for raw_msg in ws:
@@ -80,24 +88,33 @@ class KioskWebSocketConnection:
                             msg_type = msg.get("type", "UNKNOWN")
                             logger.info(
                                 "WS_RECEIVED type=%s kiosk_id=%s ts=%s",
-                                msg_type, self._kiosk_id, datetime.now(tz=UTC).isoformat(),
+                                msg_type,
+                                self._kiosk_id,
+                                datetime.now(tz=UTC).isoformat(),
                             )
                             await self._on_message(msg)
                         except Exception as exc:
                             logger.error(
                                 "WS_MESSAGE_HANDLER_ERROR kiosk_id=%s error=%s ts=%s",
-                                self._kiosk_id, str(exc), datetime.now(tz=UTC).isoformat(),
+                                self._kiosk_id,
+                                str(exc),
+                                datetime.now(tz=UTC).isoformat(),
                             )
 
             except ConnectionClosed as exc:
                 logger.warning(
                     "WS_DISCONNECTED kiosk_id=%s code=%s reason=%s ts=%s",
-                    self._kiosk_id, exc.code, exc.reason, datetime.now(tz=UTC).isoformat(),
+                    self._kiosk_id,
+                    exc.code,
+                    exc.reason,
+                    datetime.now(tz=UTC).isoformat(),
                 )
             except Exception as exc:
                 logger.error(
                     "WS_ERROR kiosk_id=%s error=%s ts=%s",
-                    self._kiosk_id, str(exc), datetime.now(tz=UTC).isoformat(),
+                    self._kiosk_id,
+                    str(exc),
+                    datetime.now(tz=UTC).isoformat(),
                 )
             finally:
                 self._connected = False
@@ -106,7 +123,9 @@ class KioskWebSocketConnection:
             if self._running:
                 logger.info(
                     "WS_RECONNECTING kiosk_id=%s delay=%.1f ts=%s",
-                    self._kiosk_id, delay, datetime.now(tz=UTC).isoformat(),
+                    self._kiosk_id,
+                    delay,
+                    datetime.now(tz=UTC).isoformat(),
                 )
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 30.0)
@@ -124,12 +143,17 @@ class KioskWebSocketConnection:
                 await self._ws.send(json.dumps(message))
                 logger.info(
                     "WS_SENT type=%s kiosk_id=%s ts=%s",
-                    msg_type, self._kiosk_id, datetime.now(tz=UTC).isoformat(),
+                    msg_type,
+                    self._kiosk_id,
+                    datetime.now(tz=UTC).isoformat(),
                 )
             except Exception as exc:
                 logger.error(
                     "WS_SEND_FAILED type=%s kiosk_id=%s error=%s ts=%s",
-                    msg_type, self._kiosk_id, str(exc), datetime.now(tz=UTC).isoformat(),
+                    msg_type,
+                    self._kiosk_id,
+                    str(exc),
+                    datetime.now(tz=UTC).isoformat(),
                 )
                 # Mark connection as disconnected — run_forever will reconnect.
                 self._connected = False
@@ -138,7 +162,8 @@ class KioskWebSocketConnection:
         else:
             logger.warning(
                 "WS_SEND_DROPPED_NOT_CONNECTED type=%s kiosk_id=%s ts=%s",
-                message.get("type", "UNKNOWN"), self._kiosk_id,
+                message.get("type", "UNKNOWN"),
+                self._kiosk_id,
                 datetime.now(tz=UTC).isoformat(),
             )
 
@@ -159,7 +184,8 @@ class KioskWebSocketConnection:
         if self._ws and self._connected:
             logger.warning(
                 "WS_FORCE_DISCONNECT kiosk_id=%s ts=%s",
-                self._kiosk_id, datetime.now(tz=UTC).isoformat(),
+                self._kiosk_id,
+                datetime.now(tz=UTC).isoformat(),
             )
             try:
                 await self._ws.close()

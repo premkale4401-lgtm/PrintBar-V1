@@ -18,7 +18,7 @@ Security:
 
 import uuid
 
-from fastapi import APIRouter, Depends, Header, Request, status, Body
+from fastapi import APIRouter, Body, Depends, Header, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +46,7 @@ settings = get_settings()
 
 
 # ─── Request / Response Schemas ───────────────────────────────────────────────
+
 
 class PaymentVerifyRequest(BaseModel):
     """
@@ -80,6 +81,7 @@ class PaymentVerifyRequest(BaseModel):
 
 
 # ─── Create Order ─────────────────────────────────────────────────────────────
+
 
 @router.post(
     "/payments/create-order",
@@ -116,9 +118,12 @@ async def create_payment_order(
     # one based on the order parameters to prevent accidental double-orders.
     if not idempotency_key:
         import hashlib
-        raw_key = f"{session_id}_{file_id}_{copies}_{pages_selected}_{color_mode}_{paper_size}_{duplex}"
+
+        raw_key = (
+            f"{session_id}_{file_id}_{copies}_{pages_selected}_{color_mode}_{paper_size}_{duplex}"
+        )
         idempotency_key = f"order_{hashlib.sha256(raw_key.encode()).hexdigest()[:16]}"
-        
+
     correlation_id = getattr(request.state, "correlation_id", "unknown")
 
     try:
@@ -176,6 +181,7 @@ async def create_payment_order(
     )
 
     from app.core.metrics import PRINT_JOBS_TOTAL
+
     PRINT_JOBS_TOTAL.inc()
 
     return JSONResponse(
@@ -184,8 +190,8 @@ async def create_payment_order(
     )
 
 
-
 # ─── Verify Payment Callback ──────────────────────────────────────────────────
+
 
 @router.post(
     "/payments/verify",
@@ -217,7 +223,9 @@ async def verify_payment(
             },
         )
 
-    logger.info("verify_payment_called", job_id=request_body.job_id, order_id=request_body.razorpay_order_id)
+    logger.info(
+        "verify_payment_called", job_id=request_body.job_id, order_id=request_body.razorpay_order_id
+    )
     service = PaymentService(db)
 
     try:
@@ -288,6 +296,7 @@ async def verify_payment(
 
 # ─── Razorpay Webhook ─────────────────────────────────────────────────────────
 
+
 @router.post(
     "/payments/webhook/razorpay",
     status_code=status.HTTP_200_OK,
@@ -343,7 +352,6 @@ async def razorpay_webhook(
 
     service = PaymentService(db)
 
-
     try:
         result = await service.process_webhook(
             raw_body=raw_body,
@@ -380,6 +388,7 @@ async def razorpay_webhook(
 
 
 # ─── Cancel Payment ───────────────────────────────────────────────────────────
+
 
 @router.post(
     "/payments/{job_id}/cancel",
@@ -423,6 +432,7 @@ async def cancel_payment(
 
 # ─── Payment Status Polling ───────────────────────────────────────────────────
 
+
 @router.get(
     "/payments/{job_id}/status",
     summary="Get payment and job status",
@@ -462,7 +472,12 @@ async def get_payment_status(
         payment_status=payment_status,
         verification_stage=stage,
     )
-    logger.debug("payment_status_polled", job_id=str(job.id), job_status=job.status, payment_status=payment_status)
+    logger.debug(
+        "payment_status_polled",
+        job_id=str(job.id),
+        job_status=job.status,
+        payment_status=payment_status,
+    )
 
     return {
         "success": True,
@@ -478,6 +493,7 @@ async def get_payment_status(
 
 
 # ─── QR Order Status Polling ──────────────────────────────────────────────────
+
 
 @router.get(
     "/payments/{job_id}/poll-order",

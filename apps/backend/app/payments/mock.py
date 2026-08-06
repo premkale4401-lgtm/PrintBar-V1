@@ -18,8 +18,8 @@ Security:
 
 from __future__ import annotations
 
-import secrets
 import asyncio
+import secrets
 from decimal import Decimal
 
 from app.core.config import get_settings
@@ -208,7 +208,7 @@ class MockPaymentProvider:
             OrderStatus with is_paid=True for any mock order ID.
         """
         await asyncio.sleep(settings.MOCK_PAYMENT_DELAY_SECONDS)
-        
+
         is_mock = gateway_order_id.startswith("mock_order_")
 
         logger.debug(

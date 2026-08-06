@@ -35,10 +35,13 @@ class PrintBarError(Exception):
 
 # ─── Authentication & Authorization ───────────────────────────────────────────
 
+
 class AuthenticationError(PrintBarError):
     """Raised when authentication credentials are missing or invalid."""
 
-    def __init__(self, message: str = "Authentication failed.", error_code: str = "AUTH_001") -> None:
+    def __init__(
+        self, message: str = "Authentication failed.", error_code: str = "AUTH_001"
+    ) -> None:
         super().__init__(message, error_code, HTTPStatus.UNAUTHORIZED)
 
 
@@ -65,6 +68,7 @@ class InvalidCredentialsError(AuthenticationError):
 
 # ─── Upload & File Handling ────────────────────────────────────────────────────
 
+
 class UploadError(PrintBarError):
     """Base class for all upload-related errors."""
 
@@ -74,7 +78,9 @@ class UploadError(PrintBarError):
 
 class UnsupportedFileTypeError(UploadError):
     def __init__(self) -> None:
-        super().__init__("Unsupported file type. Please upload a PDF, JPG, or PNG file.", "UPLOAD_001")
+        super().__init__(
+            "Unsupported file type. Please upload a PDF, JPG, or PNG file.", "UPLOAD_001"
+        )
 
 
 class SpoofedExtensionError(UploadError):
@@ -129,6 +135,7 @@ class UploadNotFoundError(PrintBarError):
 
 # ─── Payment ───────────────────────────────────────────────────────────────────
 
+
 class PaymentError(PrintBarError):
     """Base class for payment-related errors."""
 
@@ -168,7 +175,10 @@ class PaymentGatewayError(PaymentError):
 
 class PaymentOrderNotFoundError(PaymentError):
     def __init__(self) -> None:
-        super().__init__("Payment order not found.", "PAY_006", )
+        super().__init__(
+            "Payment order not found.",
+            "PAY_006",
+        )
 
 
 class CurrencyMismatchError(PaymentError):
@@ -186,6 +196,7 @@ class InvalidPaymentTransition(PrintBarError):
 
 
 # ─── Print Job ─────────────────────────────────────────────────────────────────
+
 
 class JobNotFoundError(PrintBarError):
     def __init__(self) -> None:
@@ -222,6 +233,7 @@ class NoKioskAvailableError(PrintBarError):
 
 # ─── Kiosk ─────────────────────────────────────────────────────────────────────
 
+
 class KioskNotRegisteredError(PrintBarError):
     def __init__(self) -> None:
         super().__init__("Kiosk is not registered.", "KIOSK_001", HTTPStatus.UNAUTHORIZED)
@@ -241,7 +253,11 @@ class PrinterOffline(KioskOfflineError):
 
 class DownloadFailed(PrintBarError):
     def __init__(self) -> None:
-        super().__init__("Kiosk failed to download the print file.", "KIOSK_005", HTTPStatus.INTERNAL_SERVER_ERROR)
+        super().__init__(
+            "Kiosk failed to download the print file.",
+            "KIOSK_005",
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+        )
 
 
 class KioskInvalidApiKeyError(PrintBarError):
@@ -251,10 +267,13 @@ class KioskInvalidApiKeyError(PrintBarError):
 
 # ─── Storage ───────────────────────────────────────────────────────────────────
 
+
 class StorageError(PrintBarError):
     """Raised on Supabase Storage operation failures."""
 
-    def __init__(self, message: str = "A storage error occurred.", error_code: str = "STORAGE_001") -> None:
+    def __init__(
+        self, message: str = "A storage error occurred.", error_code: str = "STORAGE_001"
+    ) -> None:
         super().__init__(message, error_code, HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
@@ -269,6 +288,7 @@ class StorageObjectNotFoundError(PrintBarError):
 
 
 # ─── Session ───────────────────────────────────────────────────────────────────
+
 
 class SessionExpiredError(PrintBarError):
     def __init__(self) -> None:

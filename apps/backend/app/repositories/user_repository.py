@@ -1,8 +1,9 @@
-﻿"""
+"""
 PrintBar Backend — User Repository
 
 Data access layer for User (admin) records.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -14,6 +15,7 @@ from app.core.logging import get_logger
 from app.models.user import User
 
 logger = get_logger(__name__)
+
 
 class UserRepository:
     """Repository for User (admin) records."""
@@ -28,9 +30,7 @@ class UserRepository:
 
     async def get_by_email(self, email: str) -> User | None:
         """Returns a user by email address (case-insensitive)."""
-        result = await self._db.execute(
-            select(User).where(User.email == email.lower().strip())
-        )
+        result = await self._db.execute(select(User).where(User.email == email.lower().strip()))
         return result.scalar_one_or_none()
 
     async def get_all_active(self) -> list[User]:
@@ -51,6 +51,7 @@ class UserRepository:
     async def update_last_login(self, user_id: uuid.UUID, timestamp: str) -> None:
         """Updates the last_login_at timestamp."""
         from sqlalchemy import update
+
         await self._db.execute(
             update(User).where(User.id == user_id).values(last_login_at=timestamp)
         )
@@ -58,7 +59,6 @@ class UserRepository:
     async def deactivate(self, user_id: uuid.UUID) -> None:
         """Soft-deletes a user account."""
         from sqlalchemy import update
-        await self._db.execute(
-            update(User).where(User.id == user_id).values(is_active=False)
-        )
+
+        await self._db.execute(update(User).where(User.id == user_id).values(is_active=False))
         logger.info("user_deactivated", user_id=str(user_id))

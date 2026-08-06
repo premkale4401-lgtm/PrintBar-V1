@@ -6,7 +6,7 @@ for database access throughout the application.
 
 Usage (in route handlers):
     from app.database.session import get_db
-    
+
     @router.get("/example")
     async def example(db: AsyncSession = Depends(get_db)):
         result = await db.execute(select(SomeModel))
@@ -54,7 +54,7 @@ def _create_engine() -> AsyncEngine:
         max_overflow=_settings.DATABASE_MAX_OVERFLOW,
         pool_timeout=_settings.DATABASE_POOL_TIMEOUT,
         pool_pre_ping=True,  # Validate connections before use.
-        pool_recycle=3600,   # Recycle connections after 1 hour.
+        pool_recycle=3600,  # Recycle connections after 1 hour.
     )
 
 
@@ -98,6 +98,7 @@ async def check_database_connectivity() -> bool:
     """
     try:
         from sqlalchemy import select, text
+
         from app.database.base import Base
 
         # Ensure all tables exist (self-healing for SQLite local dev)

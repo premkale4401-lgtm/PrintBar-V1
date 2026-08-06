@@ -5,6 +5,7 @@ POST /api/v1/admin/auth/login   — Admin login (returns JWT pair)
 POST /api/v1/admin/auth/refresh — Refresh access token
 POST /api/v1/admin/auth/logout  — Revoke refresh token
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -53,9 +54,7 @@ async def admin_login(
         raise InvalidCredentialsError()
 
     # Lookup user.
-    result = await db.execute(
-        select(User).where(User.email == email, User.is_active.is_(True))
-    )
+    result = await db.execute(select(User).where(User.email == email, User.is_active.is_(True)))
     user = result.scalar_one_or_none()
 
     if not user or not password_hasher.verify(user.password_hash, password):

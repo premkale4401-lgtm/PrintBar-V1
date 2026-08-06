@@ -45,12 +45,8 @@ class PricingRule(PrintBarBase):
     __tablename__ = "pricing_rules"
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    bw_price_inr: Mapped[Decimal] = mapped_column(
-        Numeric(8, 2), nullable=False
-    )
-    color_price_inr: Mapped[Decimal] = mapped_column(
-        Numeric(8, 2), nullable=False
-    )
+    bw_price_inr: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
+    color_price_inr: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
     a3_multiplier: Mapped[Decimal] = mapped_column(
         Numeric(4, 2), nullable=False, default=Decimal("1.75")
     )

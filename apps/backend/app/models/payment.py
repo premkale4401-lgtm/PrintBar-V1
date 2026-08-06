@@ -81,14 +81,14 @@ class Payment(PrintBarBase):
     gateway_order_id: Mapped[str | None] = mapped_column(
         String(256), nullable=True, unique=True, index=True
     )
-    gateway_txn_id: Mapped[str | None] = mapped_column(
-        String(256), nullable=True, unique=True
-    )
+    gateway_txn_id: Mapped[str | None] = mapped_column(String(256), nullable=True, unique=True)
     gateway_signature: Mapped[str | None] = mapped_column(
-        String(512), nullable=True  # Stored truncated — never full signature.
+        String(512),
+        nullable=True,  # Stored truncated — never full signature.
     )
     verification_time: Mapped[str | None] = mapped_column(
-        String(50), nullable=True  # ISO timestamp of backend verification.
+        String(50),
+        nullable=True,  # ISO timestamp of backend verification.
     )
     status: Mapped[str] = mapped_column(
         Enum(

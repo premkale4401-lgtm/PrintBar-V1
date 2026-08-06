@@ -73,6 +73,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 def _scrub_query_string(query_string: str) -> str:
     """Masks sensitive query parameters."""
     import urllib.parse
+
     parsed = urllib.parse.parse_qs(query_string, keep_blank_values=True)
     for sensitive_key in ("token", "secret", "key"):
         if sensitive_key in parsed:

@@ -83,7 +83,6 @@ async def dev_complete_payment(
             },
         )
 
-
     logger.warning(
         "dev_payment_bypass_used",
         job_id=str(job_id),
@@ -157,12 +156,15 @@ async def dev_complete_payment(
     try:
         from app.database.session import AsyncSessionFactory
         from app.services.job_dispatcher import JobDispatcher
+
         async with AsyncSessionFactory() as dispatch_db:
             async with dispatch_db.begin():
                 dispatcher = JobDispatcher(dispatch_db)
                 dispatched = await dispatcher.dispatch_pending_jobs()
                 if dispatched > 0:
-                    logger.info("dev_payment_immediate_dispatch", job_id=str(job_id), dispatched=dispatched)
+                    logger.info(
+                        "dev_payment_immediate_dispatch", job_id=str(job_id), dispatched=dispatched
+                    )
     except Exception as exc:
         logger.warning("dev_payment_dispatch_failed", job_id=str(job_id), error=str(exc))
 

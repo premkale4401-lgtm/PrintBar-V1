@@ -53,9 +53,7 @@ class PaymentRepository:
             Newly created Payment instance.
         """
         now = datetime.now(tz=UTC)
-        expires_at = (
-            now + timedelta(minutes=settings.PAYMENT_TIMEOUT_MINUTES)
-        ).isoformat()
+        expires_at = (now + timedelta(minutes=settings.PAYMENT_TIMEOUT_MINUTES)).isoformat()
 
         payment = Payment(
             print_job_id=print_job_id,
@@ -75,9 +73,7 @@ class PaymentRepository:
         return payment
 
     async def get_by_id(self, payment_id: uuid.UUID) -> Payment | None:
-        result = await self._db.execute(
-            select(Payment).where(Payment.id == payment_id)
-        )
+        result = await self._db.execute(select(Payment).where(Payment.id == payment_id))
         return result.scalar_one_or_none()
 
     async def get_by_gateway_order_id(self, gateway_order_id: str) -> Payment | None:
@@ -94,21 +90,17 @@ class PaymentRepository:
         return result.scalar_one_or_none()
 
     async def get_by_print_job_id(self, print_job_id: uuid.UUID) -> Payment | None:
-        result = await self._db.execute(
-            select(Payment).where(Payment.print_job_id == print_job_id)
-        )
+        result = await self._db.execute(select(Payment).where(Payment.print_job_id == print_job_id))
         return result.scalar_one_or_none()
 
-    async def update_gateway_order_id(
-        self, payment_id: uuid.UUID, gateway_order_id: str
-    ) -> None:
+    async def update_gateway_order_id(self, payment_id: uuid.UUID, gateway_order_id: str) -> None:
         """Sets the gateway order ID after order creation succeeds."""
         payment = await self.get_by_id(payment_id)
         if not payment:
             return
-            
+
         self._validate_transition(payment.status, "PENDING")
-        
+
         await self._db.execute(
             update(Payment)
             .where(Payment.id == payment_id)
@@ -129,7 +121,7 @@ class PaymentRepository:
             "CANCELLED": [],
             "EXPIRED": [],
         }
-        
+
         if target not in valid_transitions.get(current, []):
             logger.warning(
                 "invalid_payment_transition",
@@ -146,13 +138,11 @@ class PaymentRepository:
         payment = await self.get_by_id(payment_id)
         if not payment:
             return
-            
+
         self._validate_transition(payment.status, "VERIFYING")
-        
+
         await self._db.execute(
-            update(Payment)
-            .where(Payment.id == payment_id)
-            .values(status="VERIFYING")
+            update(Payment).where(Payment.id == payment_id).values(status="VERIFYING")
         )
         logger.info("payment_marked_verifying", payment_id=str(payment_id))
 
@@ -180,9 +170,9 @@ class PaymentRepository:
         payment = await self.get_by_id(payment_id)
         if not payment:
             return
-            
+
         self._validate_transition(payment.status, "SUCCESS")
-        
+
         await self._db.execute(
             update(Payment)
             .where(Payment.id == payment_id)
@@ -199,20 +189,16 @@ class PaymentRepository:
         )
         logger.info("payment_marked_success", payment_id=str(payment_id))
 
-    async def mark_failed(
-        self, payment_id: uuid.UUID, reason: str = "GATEWAY_FAILURE"
-    ) -> None:
+    async def mark_failed(self, payment_id: uuid.UUID, reason: str = "GATEWAY_FAILURE") -> None:
         """Marks a payment as FAILED."""
         payment = await self.get_by_id(payment_id)
         if not payment:
             return
-            
+
         self._validate_transition(payment.status, "FAILED")
-        
+
         await self._db.execute(
-            update(Payment)
-            .where(Payment.id == payment_id)
-            .values(status="FAILED")
+            update(Payment).where(Payment.id == payment_id).values(status="FAILED")
         )
         logger.info("payment_marked_failed", payment_id=str(payment_id), reason=reason)
 
@@ -221,13 +207,11 @@ class PaymentRepository:
         payment = await self.get_by_id(payment_id)
         if not payment:
             return
-            
+
         self._validate_transition(payment.status, "EXPIRED")
-        
+
         await self._db.execute(
-            update(Payment)
-            .where(Payment.id == payment_id)
-            .values(status="EXPIRED")
+            update(Payment).where(Payment.id == payment_id).values(status="EXPIRED")
         )
 
     async def mark_cancelled(self, payment_id: uuid.UUID) -> None:
@@ -238,13 +222,11 @@ class PaymentRepository:
         payment = await self.get_by_id(payment_id)
         if not payment:
             return
-            
+
         self._validate_transition(payment.status, "CANCELLED")
-        
+
         await self._db.execute(
-            update(Payment)
-            .where(Payment.id == payment_id)
-            .values(status="CANCELLED")
+            update(Payment).where(Payment.id == payment_id).values(status="CANCELLED")
         )
         logger.info("payment_marked_cancelled", payment_id=str(payment_id))
 
@@ -264,9 +246,7 @@ class PaymentRepository:
             return False
 
         result = await self._db.execute(
-            select(PaymentWebhook).where(
-                PaymentWebhook.gateway_event_id == gateway_event_id
-            )
+            select(PaymentWebhook).where(PaymentWebhook.gateway_event_id == gateway_event_id)
         )
         return result.scalar_one_or_none() is not None
 
@@ -323,9 +303,7 @@ class PaymentRepository:
         )
         return webhook
 
-    async def mark_webhook_processed(
-        self, webhook_id: uuid.UUID, error: str | None = None
-    ) -> None:
+    async def mark_webhook_processed(self, webhook_id: uuid.UUID, error: str | None = None) -> None:
         """Marks a webhook as processed (or failed with error)."""
         await self._db.execute(
             update(PaymentWebhook)
