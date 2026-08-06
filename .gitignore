@@ -107,3 +107,8 @@ logs/
 *.db
 *.sqlite
 test_printbar.db
+
+# ─── Local Storage (never commit uploaded PDFs or receipts) ───────────────────
+apps/backend/data/
+apps/backend/test_*.py
+apps/backend/tests/conftest_processor.py

@@ -5,14 +5,19 @@ The dispatcher finds QUEUED jobs and assigns them to available kiosks.
 
 Algorithm (simple FIFO):
     1. Find all QUEUED jobs, ordered by created_at ASC.
-    2. Find all ONLINE kiosks.
-    3. For each job, pick the first available kiosk (not currently printing).
+    2. Find all ONLINE kiosks that are WebSocket-connected.
+    3. For each job, pick the first available kiosk.
     4. Send JOB_ASSIGNED message via WebSocket.
     5. Transition job to ASSIGNED.
 
 The dispatcher runs:
-    - Automatically when a job enters QUEUED status (event-driven).
-    - On a 30-second background poll for missed events.
+    - Immediately when a job enters QUEUED status (event-driven — after payment verify).
+    - On a JOB_DISPATCH_WORKER_INTERVAL_SECONDS background poll for missed events.
+
+Race condition protection:
+    - Only QUEUED jobs are dispatched (ASSIGNED jobs are never re-dispatched here).
+    - The state machine transition from QUEUED → ASSIGNED is enforced by the DB.
+    - If the WebSocket send fails, the job is reverted to QUEUED for the next cycle.
 """
 from __future__ import annotations
 
@@ -40,8 +45,11 @@ class JobDispatcher:
         """
         Dispatches all QUEUED jobs to available kiosks.
 
+        Only picks up QUEUED jobs — jobs in ASSIGNED or later states are
+        never touched here, preventing double-dispatch race conditions.
+
         Returns:
-            Number of jobs dispatched.
+            Number of jobs dispatched in this call.
         """
         queued_jobs = await self._job_repo.get_queued_jobs()
         if not queued_jobs:
@@ -53,18 +61,20 @@ class JobDispatcher:
             return 0
 
         # Filter to kiosks that are actually WebSocket-connected.
+        # A kiosk might be ONLINE in DB but WS-disconnected (stale status).
         connected_kiosks = [
             k for k in online_kiosks
             if ws_manager.is_connected(str(k.id))
         ]
 
         if not connected_kiosks:
+            logger.debug("dispatch_no_ws_connected_kiosks", queued=len(queued_jobs))
             return 0
 
         dispatched = 0
         kiosk_index = 0
 
-        # Snapshot primitive job attributes to prevent lazy-loading issues across loops
+        # Snapshot primitive job attributes to prevent lazy-loading issues.
         job_snapshots = [
             {
                 "id": j.id,
@@ -89,7 +99,7 @@ class JobDispatcher:
 
             job_id = job["id"]
 
-            # Assign job to kiosk.
+            # Transition QUEUED → ASSIGNED atomically.
             try:
                 await self._job_repo.assign_to_kiosk(
                     job_id,
@@ -100,6 +110,7 @@ class JobDispatcher:
                 logger.warning(
                     "dispatch_assign_failed",
                     job_id=str(job_id),
+                    kiosk_id=str(kiosk.id),
                     error=str(exc),
                 )
                 continue
@@ -129,10 +140,19 @@ class JobDispatcher:
                     kiosk_id=str(kiosk.id),
                 )
             else:
-                # WebSocket send failed — re-queue.
+                # WebSocket send failed — re-queue so next poll picks it up.
+                logger.warning(
+                    "dispatch_ws_send_failed_reverting_to_queued",
+                    job_id=str(job_id),
+                    kiosk_id=str(kiosk.id),
+                )
                 try:
                     await self._job_repo.transition(job_id, "QUEUED")
-                except Exception:
-                    pass
+                except Exception as revert_exc:
+                    logger.error(
+                        "dispatch_revert_to_queued_failed",
+                        job_id=str(job_id),
+                        error=str(revert_exc),
+                    )
 
         return dispatched

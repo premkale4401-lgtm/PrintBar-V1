@@ -4,6 +4,11 @@ PrintBar Kiosk Agent — WebSocket Connection Manager
 Maintains a persistent, auto-reconnecting WebSocket connection to the backend.
 Reconnects with exponential backoff (1s → 2s → 4s → max 30s).
 
+Production settings:
+- ping_interval=30s: Server must respond within ping_timeout.
+- ping_timeout=15s:  If no PONG in 15s, connection is considered dead.
+- close_timeout=5s:  Clean close is attempted before giving up.
+
 Every incoming and outgoing message is logged with type and timestamp.
 """
 from __future__ import annotations
@@ -43,19 +48,22 @@ class KioskWebSocketConnection:
 
         while self._running:
             try:
-                headers = {"Authorization": f"Bearer {self._token}"}
                 async with websockets.connect(
-                    self._url, extra_headers=headers, ping_interval=30
+                    self._url,
+                    ping_interval=30,    # Send PING every 30s to keep connection alive.
+                    ping_timeout=15,     # Close if no PONG within 15s (dead connection).
+                    close_timeout=5,     # Wait up to 5s for clean close.
+                    max_size=10 * 1024 * 1024,  # 10MB max message size.
                 ) as ws:
                     self._ws = ws
                     self._connected = True
-                    delay = 1.0  # Reset delay on successful connect.
+                    delay = 1.0  # Reset backoff on successful connect.
                     logger.info(
                         "WS_CONNECTED kiosk_id=%s url=%s ts=%s",
                         self._kiosk_id, self._url, datetime.now(tz=UTC).isoformat(),
                     )
 
-                    # Send REGISTER message.
+                    # Send REGISTER message on connect.
                     register_msg = json.dumps({
                         "type": "REGISTER",
                         "data": {"kioskId": self._kiosk_id},
@@ -104,14 +112,29 @@ class KioskWebSocketConnection:
                 delay = min(delay * 2, 30.0)
 
     async def send(self, message: dict) -> None:
-        """Sends a JSON message over the WebSocket and logs it."""
+        """
+        Sends a JSON message over the WebSocket and logs it.
+
+        Raises:
+            RuntimeError: If the connection is not active.
+        """
         if self._ws and self._connected:
             msg_type = message.get("type", "UNKNOWN")
-            await self._ws.send(json.dumps(message))
-            logger.info(
-                "WS_SENT type=%s kiosk_id=%s ts=%s",
-                msg_type, self._kiosk_id, datetime.now(tz=UTC).isoformat(),
-            )
+            try:
+                await self._ws.send(json.dumps(message))
+                logger.info(
+                    "WS_SENT type=%s kiosk_id=%s ts=%s",
+                    msg_type, self._kiosk_id, datetime.now(tz=UTC).isoformat(),
+                )
+            except Exception as exc:
+                logger.error(
+                    "WS_SEND_FAILED type=%s kiosk_id=%s error=%s ts=%s",
+                    msg_type, self._kiosk_id, str(exc), datetime.now(tz=UTC).isoformat(),
+                )
+                # Mark connection as disconnected — run_forever will reconnect.
+                self._connected = False
+                self._ws = None
+                raise
         else:
             logger.warning(
                 "WS_SEND_DROPPED_NOT_CONNECTED type=%s kiosk_id=%s ts=%s",
@@ -120,22 +143,28 @@ class KioskWebSocketConnection:
             )
 
     async def close(self) -> None:
-        """Gracefully closes the connection."""
+        """Gracefully closes the connection and stops reconnect loop."""
         self._running = False
         if self._ws:
-            await self._ws.close()
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
 
     async def force_disconnect(self) -> None:
         """
         Forces the WebSocket to disconnect and trigger a reconnect.
-        Useful when an external subsystem (like heartbeat) detects an unresponsive connection.
+        Useful when the heartbeat sender detects an unresponsive connection.
         """
         if self._ws and self._connected:
             logger.warning(
                 "WS_FORCE_DISCONNECT kiosk_id=%s ts=%s",
                 self._kiosk_id, datetime.now(tz=UTC).isoformat(),
             )
-            await self._ws.close()
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
 
     @property
     def is_connected(self) -> bool:

@@ -21,14 +21,21 @@ logger = get_logger(__name__)
 
 # Valid state machine transitions.
 # Key: current status → Value: set of allowed next statuses.
+#
+# Design notes:
+#   - DOWNLOADING → PRINTING is allowed directly because the kiosk sends
+#     JOB_STATUS=PRINTING after download without an intermediate READY_TO_PRINT
+#     JOB_STATUS message (the READY_TO_PRINT state is implicit in the kiosk).
+#   - QUEUED → QUEUED allows idempotent re-queue when dispatch fails.
+#   - DOWNLOAD_FAILED → QUEUED allows retry after transient download failures.
 VALID_TRANSITIONS: dict[str, set[str]] = {
     "UPLOADED":         {"VALIDATED", "CANCELLED"},
     "VALIDATED":        {"PAYMENT_PENDING", "CANCELLED"},
     "PAYMENT_PENDING":  {"PAYMENT_SUCCESS", "PAYMENT_FAILED", "CANCELLED"},
     "PAYMENT_SUCCESS":  {"QUEUED"},
-    "QUEUED":           {"ASSIGNED", "CANCELLED"},
-    "ASSIGNED":         {"DOWNLOADING", "QUEUED"},  # QUEUED = re-queue on kiosk failure
-    "DOWNLOADING":      {"READY_TO_PRINT", "DOWNLOAD_FAILED"},
+    "QUEUED":           {"ASSIGNED", "QUEUED", "CANCELLED"},  # QUEUED→QUEUED = idempotent re-queue
+    "ASSIGNED":         {"DOWNLOADING", "QUEUED"},            # QUEUED = re-queue on kiosk failure
+    "DOWNLOADING":      {"READY_TO_PRINT", "PRINTING", "DOWNLOAD_FAILED"},  # PRINTING = direct kiosk path
     "READY_TO_PRINT":   {"PRINTING"},
     "PRINTING":         {"COMPLETED", "FAILED"},
     # Terminal states — no further transitions.
@@ -199,7 +206,6 @@ class PrintJobRepository:
             from_status=from_status,
             to_status=to_status,
         )
-        logger.info("DEBUG_PAYMENT: print_job_repository transition executed", job_id=str(job_id), from_status=from_status, to_status=to_status)
         return job
 
     async def assign_to_kiosk(
@@ -214,7 +220,18 @@ class PrintJobRepository:
         )
 
     async def mark_completed(self, job_id: uuid.UUID) -> PrintJob:
-        """Marks a job as COMPLETED and records completion timestamp."""
+        """Marks a job as COMPLETED and records completion timestamp.
+
+        Idempotent: if the job is already COMPLETED, returns it without error.
+        This prevents duplicate-completion errors when both the kiosk and a
+        recovery path attempt to mark the same job done.
+        """
+        job = await self.get_by_id(job_id)
+        if job is None:
+            raise JobNotFoundError()
+        if job.status == "COMPLETED":
+            logger.info("mark_completed_already_completed", job_id=str(job_id))
+            return job
         return await self.transition(
             job_id,
             "COMPLETED",

@@ -168,7 +168,12 @@ async def create_payment_order(
     # Inject mock mode flag so frontend can show "Complete Payment" button.
     result["isMockMode"] = settings.is_mock_payment
 
-    logger.info("DEBUG_PAYMENT: create_order endpoint executed", session_id=session_id, job_id=result.get("jobId"), is_mock=result.get("isMockMode"))
+    logger.info(
+        "order_created",
+        session_id=session_id[:8],
+        job_id=result.get("jobId"),
+        is_mock=result.get("isMockMode"),
+    )
 
     from app.core.metrics import PRINT_JOBS_TOTAL
     PRINT_JOBS_TOTAL.inc()
@@ -212,7 +217,7 @@ async def verify_payment(
             },
         )
 
-    logger.info("DEBUG_PAYMENT: verify_payment endpoint called", job_id=request_body.job_id, order_id=request_body.razorpay_order_id)
+    logger.info("verify_payment_called", job_id=request_body.job_id, order_id=request_body.razorpay_order_id)
     service = PaymentService(db)
 
     try:
@@ -446,7 +451,7 @@ async def get_payment_status(
     payment = await pay_repo.get_by_print_job_id(job_id)
     payment_status = payment.status if payment else "CREATED"
     stage = _payment_to_verification_stage(payment_status, job.status)
-    logger.info("DEBUG_PAYMENT: get_payment_status polled", job_id=str(job.id), job_status=job.status, payment_status=payment_status, verification_stage=stage)
+    logger.debug("payment_status_polled", job_id=str(job.id), job_status=job.status, payment_status=payment_status)
 
     return {
         "success": True,

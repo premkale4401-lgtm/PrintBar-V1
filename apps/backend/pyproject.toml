@@ -18,7 +18,8 @@ filterwarnings = [
     # slowapi uses asyncio.iscoroutinefunction which is deprecated in Python 3.14+
     "ignore:.*asyncio.iscoroutinefunction.*:DeprecationWarning",
     "ignore::DeprecationWarning:slowapi",
-    "ignore::starlette.status.StarletteDeprecationWarning",
+    # Starlette deprecation warning — class no longer exists in newer versions.
+    "ignore::DeprecationWarning:starlette",
 ]
 
 [tool.ruff]

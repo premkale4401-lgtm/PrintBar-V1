@@ -273,7 +273,7 @@ class PaymentService:
             PaymentOrderNotFoundError:   No payment found for this job.
             InvalidPaymentSignatureError: Signature verification failed.
         """
-        logger.info("DEBUG_PAYMENT: verify_payment_callback executing", job_id=str(job_id), order_id=razorpay_order_id)
+        logger.info("payment_verify_callback_started", job_id=str(job_id), order_id=razorpay_order_id)
         job: PrintJob | None = await self._job_repo.get_by_id(job_id)
         payment: Payment | None = None
 
@@ -391,6 +391,21 @@ class PaymentService:
             payment_id=str(payment.id),
             razorpay_payment_id=razorpay_payment_id,
         )
+
+        # Immediately trigger event-driven dispatch so the job reaches the kiosk
+        # without waiting for the 30-second background poll interval.
+        try:
+            from app.database.session import AsyncSessionFactory
+            from app.services.job_dispatcher import JobDispatcher
+            async with AsyncSessionFactory() as dispatch_db:
+                async with dispatch_db.begin():
+                    dispatcher = JobDispatcher(dispatch_db)
+                    dispatched = await dispatcher.dispatch_pending_jobs()
+                    if dispatched > 0:
+                        logger.info("payment_verified_immediate_dispatch", job_id=str(job.id), dispatched=dispatched)
+        except Exception as exc:
+            # Non-fatal: background poll will catch it within 30 seconds.
+            logger.warning("payment_verified_immediate_dispatch_failed", job_id=str(job.id), error=str(exc))
 
         return {"jobId": str(job.id), "status": "QUEUED"}
 
@@ -582,6 +597,20 @@ class PaymentService:
             gateway_txn_id=webhook_result.gateway_txn_id,
             event_type=webhook_result.event_type,
         )
+
+        # Immediately trigger event-driven dispatch after webhook queues the job.
+        if job and job.status in ("PAYMENT_PENDING",):
+            try:
+                from app.database.session import AsyncSessionFactory
+                from app.services.job_dispatcher import JobDispatcher
+                async with AsyncSessionFactory() as dispatch_db:
+                    async with dispatch_db.begin():
+                        dispatcher = JobDispatcher(dispatch_db)
+                        dispatched = await dispatcher.dispatch_pending_jobs()
+                        if dispatched > 0:
+                            logger.info("webhook_immediate_dispatch", job_id=str(job.id), dispatched=dispatched)
+            except Exception as exc:
+                logger.warning("webhook_immediate_dispatch_failed", job_id=str(job.id) if job else "?", error=str(exc))
 
         return {"processed": True, "jobId": str(job.id) if job else None}
 

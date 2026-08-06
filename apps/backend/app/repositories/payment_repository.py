@@ -198,7 +198,6 @@ class PaymentRepository:
             )
         )
         logger.info("payment_marked_success", payment_id=str(payment_id))
-        logger.info("DEBUG_PAYMENT: payment_repository mark_success executed", payment_id=str(payment_id), status="SUCCESS")
 
     async def mark_failed(
         self, payment_id: uuid.UUID, reason: str = "GATEWAY_FAILURE"

@@ -126,6 +126,28 @@ class Settings(BaseSettings):
     WS_HEARTBEAT_INTERVAL_SECONDS: int = 30
     WS_KIOSK_OFFLINE_THRESHOLD_SECONDS: int = 90
 
+    # ─── Development / Testing ─────────────────────────────────────────────────
+    # MUST be False when a real Raspberry Pi kiosk is connected.
+    # Enabling this with real hardware causes race conditions and ghost completions.
+    ENABLE_SIMULATED_KIOSK: bool = Field(
+        default=False,
+        description=(
+            "Enables the simulated kiosk background worker for development testing "
+            "WITHOUT a real Raspberry Pi. MUST be False when real hardware is present. "
+            "Ignored in production regardless of value."
+        ),
+    )
+
+    # ─── Worker Tuning ─────────────────────────────────────────────────────────
+    JOB_DISPATCH_WORKER_INTERVAL_SECONDS: int = Field(
+        default=30,
+        description="How often the belt-and-suspenders job dispatch worker polls (seconds).",
+    )
+    RECOVERY_WORKER_INTERVAL_SECONDS: int = Field(
+        default=60,
+        description="How often the workflow recovery worker checks for stuck jobs (seconds).",
+    )
+
     # ─── File Upload ───────────────────────────────────────────────────────────────
     MAX_FILE_SIZE_MB: int = 25
     MAX_PAGE_COUNT: int = 500
